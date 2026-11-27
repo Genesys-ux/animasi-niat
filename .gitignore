@@ -1,0 +1,20 @@
+# Secrets & Local Env (NEVER commit API keys!)
+.env
+.env.*
+
+# Python bytecode & temp
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+Thumbs.db
+
+# Generated intermediate render caches (rebuilt cleanly in CI or locally)
+production/char_sprites/
+production/verify_frames/
+production/rendered_frames/
+production/three_unique_cities.blend
+production/three_unique_cities.blend1
+audio/clips/*_raw.mp3
+audio/clips/*_clean.wav
+audio/sfx_bed.wav

@@ -1,0 +1,198 @@
+name: Render 3D Animation Preview (Blender 4.2 + Python 2.5D Hybrid)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Render mode (preview_reel = 36s 7-clip showcase across all 3 cities | full_video = full 76.1s video)"
+        required: true
+        default: "preview_reel"
+        type: choice
+        options:
+          - preview_reel
+          - full_video
+      resolution:
+        description: "Output video resolution"
+        required: true
+        default: "960x540"
+        type: choice
+        options:
+          - 960x540
+          - 1280x720
+          - 1920x1080
+      samples:
+        description: "Cycles denoised samples per frame (10 = fast preview, 16 = crisp HD, 24 = final)"
+        required: true
+        default: "10"
+        type: choice
+        options:
+          - "10"
+          - "16"
+          - "24"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "production/**"
+      - "characters/**"
+      - ".github/workflows/render-preview.yml"
+
+jobs:
+  plan-chunks:
+    name: Plan Parallel Render Chunks
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.make_chunks.outputs.chunks }}
+      mode: ${{ steps.make_chunks.outputs.mode }}
+      resolution: ${{ steps.make_chunks.outputs.resolution }}
+      samples: ${{ steps.make_chunks.outputs.samples }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compute 14 Parallel Frame Chunks
+        id: make_chunks
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "production")
+          from timeline_data import PREVIEW_SEGMENTS, TOTAL_FRAMES
+
+          mode = "${{ github.event.inputs.mode || 'preview_reel' }}"
+          res = "${{ github.event.inputs.resolution || '960x540' }}"
+          samples = "${{ github.event.inputs.samples || '10' }}"
+
+          if mode == "full_video":
+              all_frames = list(range(TOTAL_FRAMES))
+          else:
+              all_frames = []
+              for _, f0, f1 in PREVIEW_SEGMENTS:
+                  all_frames.extend(range(f0, f1 + 1))
+
+          n_jobs = 14
+          chunks = []
+          size = (len(all_frames) + n_jobs - 1) // n_jobs
+          for idx in range(n_jobs):
+              sub = all_frames[idx * size : (idx + 1) * size]
+              if sub:
+                  chunks.append({
+                      "id": f"chunk_{idx:02d}",
+                      "start": sub[0],
+                      "end": sub[-1],
+                      "frames": ",".join(str(x) for x in sub),
+                      "count": len(sub),
+                  })
+
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a", encoding="utf-8") as fh:
+              fh.write(f"chunks={json.dumps(chunks)}\n")
+              fh.write(f"mode={mode}\n")
+              fh.write(f"resolution={res}\n")
+              fh.write(f"samples={samples}\n")
+          print(f"Planned {len(chunks)} chunks ({len(all_frames)} total frames) for mode={mode}, res={res}, samples={samples}")
+          PY
+
+  render-chunk:
+    name: Render ${{ matrix.chunk.id }} (${{ matrix.chunk.count }}f)
+    needs: plan-chunks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(needs.plan-chunks.outputs.chunks) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python Character Engine Dependencies
+        run: |
+          pip install --quiet pillow numpy resvg-py
+
+      - name: Cache & Install Blender 4.2.3 LTS (Linux Headless)
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: /tmp/blender-4.2
+          key: blender-4.2.3-linux-x64
+
+      - name: Download Blender 4.2.3 LTS if not cached
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 libxkbcommon0 libsm6
+          curl -fsSL https://download.blender.org/release/Blender4.2/blender-4.2.3-linux-x64.tar.xz -o /tmp/blender.tar.xz
+          mkdir -p /tmp/blender-4.2
+          tar -xf /tmp/blender.tar.xz -C /tmp/blender-4.2 --strip-components=1
+          rm -f /tmp/blender.tar.xz
+
+      - name: Install Blender runtime libs (when cached)
+        if: steps.cache-blender.outputs.cache-hit == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 libxkbcommon0 libsm6
+
+      - name: Generate Signage Textures & Build Master 3D .blend Scene
+        run: |
+          python production/generate_textures.py
+          /tmp/blender-4.2/blender --background --python production/build_blender_scene.py
+
+      - name: Render 2.5D Open Free-Rig Character Sprites for Chunk
+        run: |
+          python production/render_characters_seq.py --frames "${{ matrix.chunk.frames }}" --scale 2.0 --workers 4
+
+      - name: Render 3D Blender Hybrid Frames for Chunk
+        run: |
+          /tmp/blender-4.2/blender --background production/three_unique_cities.blend \
+            --python production/render_blender_chunk.py -- \
+            --frames "${{ matrix.chunk.frames }}" \
+            --res "${{ needs.plan-chunks.outputs.resolution }}" \
+            --samples "${{ needs.plan-chunks.outputs.samples }}" \
+            --engine CYCLES \
+            --out-dir "production/rendered_frames"
+
+      - name: Upload Rendered Frames Chunk
+        uses: actions/upload-artifact@v4
+        with:
+          name: frames-${{ matrix.chunk.id }}
+          path: production/rendered_frames/frame_*.png
+          retention-days: 3
+
+  assemble-video:
+    name: Assemble Final Preview MP4 + Audio Mix
+    needs: [plan-chunks, render-chunk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg & Pillow
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install --quiet pillow
+
+      - name: Download All Rendered Frame Chunks
+        uses: actions/download-artifact@v4
+        with:
+          pattern: frames-chunk_*
+          path: production/rendered_frames
+          merge-multiple: true
+
+      - name: Assemble H.264 MP4 with ElevenLabs VO + SFX Mix
+        run: |
+          MODE="${{ needs.plan-chunks.outputs.mode }}"
+          OUT="production/output/3_kota_unik_${MODE}_${{ needs.plan-chunks.outputs.resolution }}.mp4"
+          python production/assemble_preview.py --mode "$MODE" --frames-dir production/rendered_frames --out "$OUT"
+          ls -lh production/output/
+
+      - name: Upload Final Video & Contact Sheet Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3-kota-unik-${{ needs.plan-chunks.outputs.mode }}-${{ needs.plan-chunks.outputs.resolution }}
+          path: production/output/*
+          retention-days: 14
