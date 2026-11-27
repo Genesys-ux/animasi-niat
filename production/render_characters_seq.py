@@ -141,17 +141,16 @@ def render_frames(frames: List[int], scale: float = 2.0, workers: int = 4) -> No
 
     tasks = []
     for f in frames:
-        st_map = get_character_states(f)
+        ls_frame = {nm: tbl[f] for nm, tbl in lipsync.items() if f in tbl}
+        st_map = get_character_states(f, lipsync_vals=ls_frame)
         for name, st in st_map.items():
             if not st["visible"]:
                 continue
             slug = ACTOR_SLUGS[name]
             out_png = OUT_ROOT / slug / f"frame_{f:04d}.png"
             rig = dict(st["rig"])
-            # Inject audio-driven lip-sync if character has VO at this frame!
-            if name in lipsync and f in lipsync[name]:
-                rig["mouth_open"] = lipsync[name][f]
-            # Keep 2.5D card shadow disabled so Blender's real 3D directional lighting casts accurate shadows!
+            if name in ls_frame:
+                rig["mouth_open"] = ls_frame[name]
             rig["ground_shadow"] = False
             tasks.append((name, f, float(st["angle"]), rig, out_png))
 

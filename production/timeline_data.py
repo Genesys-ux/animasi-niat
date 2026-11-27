@@ -1,18 +1,13 @@
 """
-Master Choreography, 30-Move Continuous Camera Script, Dynamic Reveal Timings,
-and Character 3D World Trajectories for "3 Kota Paling Unik di Dunia" (76.1s @ 30fps = 2283 frames).
+Master Choreography, 9:16 VERTICAL Wide-Angle Camera Script (32 Moves + Heavy Cliff Drop Shake!),
+Distance-Synced 4-Phase Biomechanical Character Trajectories, Dynamic Build-Up Timings,
+and Strict Complete-Sentence Preview Segments for "3 Kota Paling Unik di Dunia" (76.1s @ 30fps = 2283 frames).
 
 100% Narrative-Synced to audio/vo_manifest.json.
-Every coordinate is in Blender meters (X right, Y forward/depth, Z up).
-
-7 Distinct 3D Shoot Zones arranged cleanly in world space (zero cross-bleeding):
-  Zone 1 (X=  0, Y=  0.. 10, Z=0): Begich Towers Exterior Plaza & Snowy Mountains (Whittier, Alaska)
-  Zone 2 (X=  0, Y= 12.. 32, Z=0): Begich Towers Warm Lobby, Post Office, Elevator & Kozy Korner
-  Zone 3 (X= 10..42, Y=24, Z=-2.4): Whittier Underground School Tunnel (Yellow-Blue Arched Concrete)
-  Zone 4 (X=100, Y=  0.. 18, Z=0): Coober Pedy Scorching Red Outback Desert, Mullock Heaps & Vent Pipes
-  Zone 5 (X=100, Y= 20.. 38, Z=0): Coober Pedy Underground Sandstone Dugout Living Room & Opal Vein
-  Zone 6 (X=200, Y=  0.. 36, Z=0): Setenil de las Bodegas — Calle Cuevas del Sol & Bar La Roca Terrace
-  Zone 7 (X=200, Y= 18.. 36, Z=4.2): Setenil 2nd-Floor Balcony, Geraniums & Golden Hour Cliff Overlook
+Strict 3-Collection World Isolation:
+  - LOC_01_Whittier   : Frames    0 ..  835  (Begich Towers Ext, Lobby, Post Office, Kozy Korner, School Tunnel)
+  - LOC_02_CooberPedy : Frames  836 .. 1518  (Red Outback Desert, Mullock Heaps, Vent Pipes, Sandstone Dugout & Opal)
+  - LOC_03_Setenil    : Frames 1519 .. 2282  (Calle Cuevas del Sol, Colossal Rock Overhang, Bar La Roca & Balconies)
 """
 
 from __future__ import annotations
@@ -20,8 +15,10 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Tuple
 
+from biomechanics import build_acting_rig, build_seated_rig, build_walk_rig
+
 FPS = 30
-TOTAL_FRAMES = 2283  # 76.096s exact match to vo_manifest.json
+TOTAL_FRAMES = 2283  # Exact 76.096s match to audio/vo_manifest.json
 
 # ============================================================================
 # EXACT VOICEOVER SEGMENTS (from audio/vo_manifest.json)
@@ -42,21 +39,25 @@ VO_CLIPS = [
     {"id": "13_fajar_outro",         "char": "Fajar",      "f0": 2096, "f1": 2271, "wav": "audio/clips/13_fajar_outro.wav"},
 ]
 
-# Scene boundaries (continuous camera transitions)
-SCENE_RANGES = {
-    "whittier_ext":    (0, 99),      # 00:00.0 - 00:03.3  (2s Hook + pushes glass door)
-    "whittier_lobby":  (100, 554),   # 00:03.3 - 00:18.5  (Lobby, directory, Pak Arthur PO, Kozy Korner)
-    "whittier_tunnel": (555, 835),   # 00:18.5 - 00:27.8  (Whip-pan stairs -> yellow-blue tunnel + Maya + speed dive)
-    "coober_desert":   (836, 1092),  # 00:27.8 - 00:36.4  (Pipe erupt -> crane pull-back desert -> cave door)
-    "coober_dugout":   (1093, 1518), # 00:36.4 - 00:50.6  (Dugout interior orbit, Jack, Elena opal flash)
-    "setenil_street":  (1519, 1912), # 00:50.6 - 01:03.7  (Low-angle tracking Calle Cuevas del Sol, Fajar ducks, Mateo)
-    "setenil_balcony": (1913, 2094), # 01:03.7 - 01:09.8  (Crane arc past white houses & geranium balcony, tapas bite)
-    "setenil_outro":   (2095, 2282), # 01:09.8 - 01:16.1  (Golden hour pull-back, 3 fingers, snap loop hook)
+# Active Location Collection boundaries (STRICT isolation — zero cross-bleed!)
+LOCATION_RANGES = {
+    "LOC_01_Whittier":   (0, 835),
+    "LOC_02_CooberPedy": (836, 1518),
+    "LOC_03_Setenil":    (1519, 2282),
 }
 
-# ============================================================================
-# EASING HELPERS (Non-Linear Organic Curves + Subtle Overshoot)
-# ============================================================================
+SCENE_RANGES = {
+    "whittier_ext":    (0, 99),
+    "whittier_lobby":  (100, 554),
+    "whittier_tunnel": (555, 835),
+    "coober_desert":   (836, 1092),
+    "coober_dugout":   (1093, 1518),
+    "setenil_street":  (1519, 1912),
+    "setenil_balcony": (1913, 2094),
+    "setenil_outro":   (2095, 2282),
+}
+
+
 def clamp01(t: float) -> float:
     return 0.0 if t <= 0.0 else (1.0 if t >= 1.0 else t)
 
@@ -65,9 +66,7 @@ def ease_in_out_expo(t: float) -> float:
     t = clamp01(t)
     if t == 0.0 or t == 1.0:
         return t
-    if t < 0.5:
-        return (2.0 ** (20.0 * t - 10.0)) * 0.5
-    return (2.0 - (2.0 ** (-20.0 * t + 10.0))) * 0.5
+    return (2.0 ** (20.0 * t - 10.0)) * 0.5 if t < 0.5 else (2.0 - (2.0 ** (-20.0 * t + 10.0))) * 0.5
 
 
 def ease_in_out_cubic(t: float) -> float:
@@ -80,7 +79,7 @@ def ease_out_expo(t: float) -> float:
     return 1.0 if t >= 1.0 else 1.0 - (2.0 ** (-10.0 * t))
 
 
-def ease_out_back(t: float, s: float = 1.25) -> float:
+def ease_out_back(t: float, s: float = 1.1) -> float:
     t = clamp01(t)
     u = t - 1.0
     return 1.0 + (s + 1.0) * (u ** 3) + s * (u ** 2)
@@ -100,132 +99,140 @@ def lerp3(a: Tuple[float, float, float], b: Tuple[float, float, float], t: float
 
 
 # ============================================================================
-# 30 CONTINUOUS WIDE-ANGLE CAMERA MOVEMENTS (Exceeds >25 rule!)
-# Format: (frame, cam_pos(x,y,z), target_pos(x,y,z), focal_mm, easing_name, hard_cut)
-# Hard cuts ONLY on the 2 deliberate match-cut transitions (f=836 pipe burst, f=1519 sunbeam flash)
+# 32 CONTINUOUS 9:16 VERTICAL CAMERA MOVEMENTS (sensor_fit='VERTICAL', 24-28mm!)
+# Carefully vertically centered so NO character or hero prop is ever cropped at L/R edges!
 # ============================================================================
 CAMERA_KEYS: List[Tuple[int, Tuple[float, float, float], Tuple[float, float, float], float, str, bool]] = [
     # --- ACT 0: HOOK — WHITTIER EXTERIOR (0..99) ---
-    # M01: Wide establishing snowstorm push-in showing towering 14-story Begich + Chugach mountains!
-    (0,    (-2.2, -16.5, 2.4),  (0.0,  9.5, 9.5),  17.0, "out_expo",    False),
-    # M02: Fast dolly-in tilting down to shivering Fajar in front of 14-story tower
-    (36,   (-1.0,  -4.2, 1.50), (0.0,  4.5, 2.40), 19.0, "in_out_cubic", False),
-    # M03: Emphasis zoom-in on Fajar shivering + pointing back at massive tower
-    (62,   (-0.5,  -0.4, 1.48), (0.1,  3.8, 1.65), 24.0, "out_back",    False),
-    # M04: Dynamic follow-through as Fajar pushes open glass lobby door at t=2.2s
-    (86,   (0.0,    5.6, 1.45), (0.0, 11.2, 1.35), 22.0, "in_out_expo", False),
-    # M05: Smooth pass-through threshold into warm Begich lobby!
-    (102,  (0.0,   10.8, 1.45), (0.0, 16.5, 1.35), 22.0, "out_back",    False),
+    # M01: Dramatic vertical 9:16 establishing shot showing ALL 14 vertical stories of Begich Towers + Chugach peaks!
+    (0,    (-1.4, -18.5, 2.2),  (0.0,  11.0, 12.5), 24.0, "out_expo",     False),
+    # M02: Fast dolly-in tilting smoothly down onto shivering Fajar centered below snowy Begich canopy
+    (42,   (-0.6,  -3.6, 1.50), (0.0,   4.8,  2.60), 25.0, "in_out_cubic", False),
+    # M03: Crisp vertical hero framing on Fajar before pushing glass doors
+    (64,   (-0.3,  -1.2, 1.45), (0.1,   4.2,  1.85), 26.0, "out_back",     False),
+    # M04: Dynamic push right behind Fajar as both hands push glass lobby doors open!
+    (86,   (0.1,    5.2, 1.48), (0.1,  11.4,  1.45), 25.0, "in_out_expo",  False),
+    # M05: Smooth pass-through glass threshold into warm 3400K Begich Towers lobby!
+    (102,  (0.0,   10.6, 1.50), (0.0,  16.8,  1.42), 25.0, "out_back",     False),
 
-    # --- ACT 1A: BEGICH TOWERS LOBBY & POST OFFICE (100..554) ---
-    # M06: Continuous tracking shot sweeping past building directory board (left)
-    (165,  (-1.3,  14.2, 1.55), (-2.6, 17.8, 1.50), 23.0, "in_out_cubic", False),
-    # M07: Arc right past Fajar revealing 14-floor interior hub & Kozy Korner minimart
-    (240,  (1.2,   17.4, 1.58), (2.8,  21.5, 1.40), 22.0, "in_out_cubic", False),
-    # M08: Dolly forward along warm corridor as NPCs stroll past
-    (315,  (0.6,   20.2, 1.50), (-1.4, 24.5, 1.38), 22.0, "in_out_cubic", False),
-    # M09: Emphasis zoom onto elevator doors sliding open & Pak Arthur stepping out in pajamas!
-    (375,  (1.4,   21.8, 1.42), (-2.6, 25.2, 1.25), 28.0, "out_back",    False),
-    # M10: Tracking Pak Arthur 5 steps to wooden Post Office counter
-    (430,  (0.4,   22.6, 1.35), (-3.1, 26.2, 1.25), 28.0, "in_out_cubic", False),
-    # M11: Comedic low tilt emphasis on Pak Arthur's red-white plaid pajamas & mug!
-    (490,  (-0.5,  23.4, 1.05), (-2.9, 26.3, 0.95), 32.0, "out_back",    False),
-    # M12: Pull back slightly catching Fajar reacting to Pak Arthur's joke
-    (542,  (0.8,   22.2, 1.45), (-1.4, 25.6, 1.30), 24.0, "in_out_cubic", False),
+    # --- ACT 1A: BEGICH TOWERS LOBBY, KOZY KORNER & PAK ARTHUR (100..554) ---
+    # M06: Vertical glide past 14-Floor Building Directory Board (left)
+    (165,  (-0.5,  13.4, 1.55), (-3.0, 17.2,  1.58), 25.0, "in_out_cubic", False),
+    # M07: Arc gently right showcasing colorful Kozy Korner minimarket storefront!
+    (240,  (0.6,   16.8, 1.55), (3.4,  20.6,  1.48), 25.0, "in_out_cubic", False),
+    # M08: Center corridor tracking following Fajar & strolling residents
+    (320,  (0.2,   19.6, 1.50), (-1.2, 24.8,  1.40), 25.0, "in_out_cubic", False),
+    # M09: Vertical two-shot framing Elevator opening & Pak Arthur stepping out in plaid pajamas!
+    (378,  (0.9,   19.6, 1.45), (-2.0, 25.0,  1.30), 25.0, "out_back",     False),
+    # M10: Tracking Pak Arthur stepping cleanly to wooden Post Office counter (BOTH Fajar & Arthur centered!)
+    (435,  (0.35,  19.4, 1.42), (-1.55, 25.5, 1.28), 24.0, "in_out_cubic", False),
+    # M11: Comedic vertical focus on Pak Arthur's sky-blue postal shirt + red-white plaid pajamas + U.S. Post Office!
+    (492,  (-0.15, 20.6, 1.32), (-2.25, 26.2, 1.26), 26.0, "out_back",     False),
+    # M12: Pull back gently showing Fajar laughing at Pak Arthur's punchline
+    (544,  (0.65,  19.8, 1.46), (-1.35, 25.4, 1.34), 24.0, "in_out_cubic", False),
 
     # --- ACT 1B: WHIP-PAN INTO UNDERGROUND SCHOOL TUNNEL (555..835) ---
-    # M13: Snappy whip-pan RIGHT following Maya toward "TO SCHOOL TUNNEL ->" doorway!
-    (568,  (2.2,   23.2, 1.55), (8.2,  24.0, 0.85), 20.0, "in_out_expo", False),
-    # M14: Diving smoothly down concrete staircase behind Maya
-    (615,  (9.2,   23.6, 0.45), (16.5, 24.0, -1.25), 20.0, "in_out_cubic", False),
-    # M15: Low wide tracking inside arched yellow-blue concrete tunnel
-    (685,  (17.5,  23.6, -1.05), (25.0, 24.0, -1.15), 20.0, "in_out_cubic", False),
-    # M16: Pull alongside Maya as she looks back smiling & waves in her teal sweater!
-    (745,  (25.2,  22.9, -1.00), (28.5, 24.2, -1.12), 26.0, "out_back",    False),
-    # M17: Dynamic close emphasis on Maya & clean sneakers before steel tunnel exit
-    (798,  (29.8,  23.1, -1.10), (33.5, 24.0, -1.20), 24.0, "in_out_cubic", False),
-    # M18: Speed-ramp dive straight into dark tunnel exit portal -> match-cut!
-    (835,  (39.8,  24.0, -1.15), (44.0, 24.0, -1.15), 16.0, "in_cubic",    False),
+    # M13: Snappy whip-pan RIGHT following Maya toward "SCHOOL TUNNEL ->" stairwell!
+    (570,  (1.8,   23.4, 1.55), (8.2,  24.0,  0.80), 24.0, "in_out_expo",  False),
+    # M14: Diving down concrete stairwell behind jogging Maya
+    (618,  (8.8,   23.8, 0.35), (16.5, 24.0, -1.25), 24.0, "in_out_cubic", False),
+    # M15: Wide vertical tunnel tracking showcasing yellow-blue concrete vault, pipes & caged neons
+    (688,  (17.2,  23.8, -1.00), (25.5, 24.0, -1.05), 24.0, "in_out_cubic", False),
+    # M16: Centered 9:16 framing on Maya turning & waving happily in her teal sweater!
+    (748,  (24.2,  23.6, -1.05), (29.8, 24.1, -1.08), 26.0, "out_back",     False),
+    # M17: Dynamic close tracking of Maya stepping backward toward steel fire-door
+    (800,  (29.2,  23.7, -1.10), (34.8, 24.0, -1.12), 25.0, "in_out_cubic", False),
+    # M18: Speed-ramp dive through open steel bulkhead door -> match-cut!
+    (835,  (40.2,  24.0, -1.15), (44.5, 24.0, -1.15), 20.0, "in_cubic",     False),
 
-    # --- ACT 2A: COOBER PEDY SCORCHING RED DESERT (836..1092) ---
-    # M19: Match-cut erupting UP out of white desert ventilation pipe!
-    (836,  (100.0,  2.0, 0.85), (100.0, 2.0,  6.50), 16.0, "out_expo",    True),
-    # M20: Fast high-angle crane pull-back revealing vast red ochre desert & mullock heaps!
-    (895,  (94.5,  -7.5, 7.20), (100.5, 6.5,  1.20), 19.0, "out_expo",    False),
-    # M21: Sweeping desert arc past white vent pipes & rusted "DANGER: OPEN SHAFTS" sign
-    (965,  (97.2,   1.5, 2.15), (100.4, 12.2, 1.45), 21.0, "in_out_cubic", False),
-    # M22: Emphasis dolly onto Fajar fanning his face next to red hill wooden cave door
-    (1030, (98.4,   7.8, 1.48), (100.0, 14.5, 1.42), 24.0, "out_back",    False),
-    # M23: Push-in following Fajar opening heavy timber dugout door into cool cave sanctuary!
-    (1092, (100.0, 17.6, 1.45), (100.0, 24.0, 1.35), 22.0, "in_out_expo", False),
+    # --- ACT 2A: COOBER PEDY SCORCHING RED OUTBACK DESERT (836..1092) ---
+    # M19: Match-cut erupting vertically UP out of white desert ventilation shaft!
+    (836,  (100.0,  2.0, 0.90), (100.0,  2.0, 6.80), 22.0, "out_expo",     True),
+    # M20: High vertical crane pull-back revealing endless red Outback desert, Nishita sky, mullock heaps & pipes!
+    (898,  (95.5,  -8.5, 6.20), (100.2,  8.5, 1.40), 24.0, "out_expo",     False),
+    # M21: Sweeping desert tracking past staggered vent pipes & huge rusted "DANGER: OPEN SHAFTS" sign!
+    (968,  (98.2,   1.8, 1.95), (100.4, 12.2, 1.50), 25.0, "in_out_cubic", False),
+    # M22: Centered 9:16 framing on sweating Fajar fanning his face beside wooden cave door!
+    (1032, (99.1,   6.8, 1.48), (100.0, 14.5, 1.45), 26.0, "out_back",     False),
+    # M23: Push-in right behind Fajar pushing open heavy timber cave door into cool sandstone dugout!
+    (1092, (100.0, 17.6, 1.48), (100.0, 24.5, 1.38), 24.0, "in_out_expo",  False),
 
-    # --- ACT 2B: COOBER PEDY SANDSTONE DUGOUT & OPAL REVEAL (1093..1518) ---
-    # M24: Wide reveal glide inside carved sandstone dugout living room
-    (1165, (97.2,  21.4, 1.55), (100.5, 28.0, 1.25), 21.0, "in_out_cubic", False),
-    # M25: Smooth 180° orbit around leather sofa, recessed rock bookshelf & terracotta floor
-    (1265, (104.4, 24.5, 1.52), (99.8,  28.2, 1.18), 22.0, "in_out_cubic", False),
-    # M26: Orbit continuing onto Jack relaxing on leather sofa with iced tea (deadpan off-fan nearby!)
-    (1370, (102.6, 25.0, 1.38), (98.5,  28.4, 1.15), 28.0, "out_back",    False),
-    # M27: Whip-arc right to Elena shining LED flashlight beam onto shimmering Opal Vein!
-    (1442, (99.8,  25.8, 1.45), (103.5, 29.8, 1.38), 28.0, "in_out_expo", False),
-    # M28: Extreme emphasis push-in directly into glowing blue-green-magenta opal crystal flash!
-    (1518, (103.0, 29.3, 1.42), (104.6, 30.8, 1.42), 18.0, "in_cubic",    False),
+    # --- ACT 2B: COOBER PEDY CARVED SANDSTONE DUGOUT & OPAL VEIN (1093..1518) ---
+    # M24: Wide reveal glide inside carved sandstone vault as furniture pops in!
+    (1168, (98.5,  20.6, 1.55), (100.2, 28.0, 1.35), 24.0, "in_out_cubic", False),
+    # M25: Smooth orbit revealing recessed rock bookshelf, copper lamps, vintage fan & tribal rug!
+    (1268, (103.6, 23.2, 1.52), (99.4,  28.4, 1.25), 25.0, "in_out_cubic", False),
+    # M26: Centered 9:16 portrait on Jack seated relaxed on leather sofa lifting iced tea glass!
+    (1372, (99.8,  23.4, 1.38), (98.4,  28.4, 1.10), 26.0, "out_back",     False),
+    # M27: Unobstructed vertical hero shot centering Elena aiming LED flashlight & sparkling Opal Vein!
+    (1445, (101.4, 24.8, 1.42), (103.6, 29.8, 1.38), 25.0, "in_out_expo",  False),
+    # M28: Dramatic push-in straight into shimmering rainbow Opal Crystal flash -> match-cut!
+    (1518, (103.4, 29.3, 1.42), (104.8, 30.8, 1.42), 20.0, "in_cubic",     False),
 
     # --- ACT 3: SETENIL DE LAS BODEGAS — CALLE CUEVAS DEL SOL (1519..2282) ---
-    # M29: Match-cut emerging from Golden Hour sunbeam slicing under giant overhanging cliff!
-    (1519, (198.2, -3.5, 1.15), (200.0,  8.0, 2.90), 19.0, "out_expo",    True),
-    # M30: Low-angle speed-tracking tilting UP to showcase hundred-ton rock overhang!
-    (1610, (198.8,  4.8, 1.05), (200.5, 15.0, 3.80), 19.0, "in_out_cubic", False),
-    # M31: Tracking Fajar walking reflexively ducked under 4.5m cliff rock ceiling!
-    (1715, (197.8, 10.6, 1.35), (200.6, 18.0, 2.10), 21.0, "in_out_cubic", False),
-    # M32: Dolly onto Bar La Roca terrace as Mateo confidently sets tapas & knocks cliff ceiling!
-    (1830, (197.8, 14.2, 1.45), (201.4, 19.6, 1.85), 23.0, "out_back",    False),
-    # M33: Smooth crane arc rising sideways past white stucco houses & geranium balconies!
-    (1955, (196.4, 19.8, 4.20), (201.8, 23.5, 4.40), 22.0, "in_out_cubic", False),
-    # M34: Descending crane glide back to Mateo offering tapas bread to amazed Fajar!
-    (2075, (198.5, 16.5, 1.50), (201.4, 20.4, 1.38), 25.0, "out_back",    False),
-    # M35: Majestic Golden Hour pull-back down cobblestone alley — Fajar 3 fingers -> snap loop!
-    (2175, (199.2, 11.2, 1.65), (200.5, 20.5, 1.85), 21.0, "in_out_cubic", False),
-    (2282, (198.6,  1.8, 2.35), (200.5, 19.5, 2.65), 18.0, "in_out_expo", False),
+    # M29: Match-cut emerging into Spanish Golden Hour alley as cobblestone & white houses build up!
+    (1519, (199.2, -3.2, 1.28), (200.4, 10.0, 3.20), 24.0, "out_expo",     True),
+    # M30: Low vertical tilt-up capturing the COLOSSAL rock cliff dropping & locking onto white roofs!
+    (1585, (199.0,  2.2, 1.15), (200.8, 14.5, 4.40), 24.0, "in_out_cubic", False),
+    # M31: Tracking Fajar stepping comically ducked (real 4-phase crouch steps!) beneath 4.5m cliff!
+    (1725, (198.4, 10.4, 1.32), (200.6, 18.2, 2.05), 25.0, "in_out_cubic", False),
+    # M32: Centered 9:16 two-shot on Bar La Roca terrace: Mateo knocks rock ceiling & serves Fajar!
+    (1836, (198.2, 13.4, 1.48), (200.8, 19.2, 1.75), 25.0, "out_back",     False),
+    # M33: Smooth vertical crane rise showcasing Pueblos Blancos, green shutters, geranium pots & laundry!
+    (1965, (197.2, 18.2, 4.15), (201.8, 23.6, 4.30), 24.0, "in_out_cubic", False),
+    # M34: Descending glide onto Mateo offering tapas bread to amazed Fajar
+    (2072, (198.4, 14.6, 1.48), (200.8, 19.2, 1.55), 26.0, "out_back",     False),
+    # M35: Majestic Golden Hour 9:16 pull-back framing Fajar centered under colossal rock silhouette -> snap loop!
+    (2175, (199.5, 11.4, 1.58), (200.2, 19.0, 2.25), 25.0, "in_out_cubic", False),
+    (2282, (199.2,  3.8, 2.15), (200.2, 19.0, 3.10), 24.0, "in_out_expo",  False),
 ]
 
 
 def get_camera_state(frame: int) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], float]:
-    """Evaluate continuous camera (location, look_at_target, lens_mm) at exact frame."""
+    """Evaluate continuous 9:16 vertical camera (location, target, lens_mm) + cliff-drop micro shake!"""
     if frame <= CAMERA_KEYS[0][0]:
         k = CAMERA_KEYS[0]
-        return k[1], k[2], k[3]
-    if frame >= CAMERA_KEYS[-1][0]:
+        pos, tgt, lens = k[1], k[2], k[3]
+    elif frame >= CAMERA_KEYS[-1][0]:
         k = CAMERA_KEYS[-1]
-        return k[1], k[2], k[3]
+        pos, tgt, lens = k[1], k[2], k[3]
+    else:
+        pos, tgt, lens = CAMERA_KEYS[-1][1], CAMERA_KEYS[-1][2], CAMERA_KEYS[-1][3]
+        for i in range(len(CAMERA_KEYS) - 1):
+            f0, p0, t0, l0, _, _ = CAMERA_KEYS[i]
+            f1, p1, t1, l1, ease_name, hard_cut = CAMERA_KEYS[i + 1]
+            if f0 <= frame <= f1:
+                if hard_cut:
+                    pos, tgt, lens = (p1, t1, l1) if frame >= f1 else (p0, t0, l0)
+                else:
+                    u = (frame - f0) / max(1.0, float(f1 - f0))
+                    if ease_name == "out_expo":
+                        e = ease_out_expo(u)
+                    elif ease_name == "in_out_expo":
+                        e = ease_in_out_expo(u)
+                    elif ease_name == "out_back":
+                        e = ease_out_back(u, s=0.75)
+                    elif ease_name == "in_cubic":
+                        e = ease_in_cubic(u)
+                    else:
+                        e = ease_in_out_cubic(u)
+                    pos = lerp3(p0, p1, e)
+                    tgt = lerp3(t0, t1, e)
+                    lens = lerp(l0, l1, clamp01(e))
+                break
 
-    for i in range(len(CAMERA_KEYS) - 1):
-        f0, p0, t0, l0, _, _ = CAMERA_KEYS[i]
-        f1, p1, t1, l1, ease_name, hard_cut = CAMERA_KEYS[i + 1]
-        if f0 <= frame <= f1:
-            if hard_cut:
-                return (p1, t1, l1) if frame >= f1 else (p0, t0, l0)
-            u = (frame - f0) / max(1.0, float(f1 - f0))
-            if ease_name == "out_expo":
-                e = ease_out_expo(u)
-            elif ease_name == "in_out_expo":
-                e = ease_in_out_expo(u)
-            elif ease_name == "out_back":
-                e = ease_out_back(u, s=0.85)
-            elif ease_name == "in_cubic":
-                e = ease_in_cubic(u)
-            else:
-                e = ease_in_out_cubic(u)
-            pos = lerp3(p0, p1, e)
-            tgt = lerp3(t0, t1, e)
-            lens = lerp(l0, l1, clamp01(e))
-            # Subtle organic handheld camera breathing micro-motion (never static!)
-            t_sec = frame / float(FPS)
-            bx = math.sin(t_sec * 1.15) * 0.025
-            bz = math.cos(t_sec * 1.65) * 0.018
-            return (pos[0] + bx, pos[1], pos[2] + bz), tgt, lens
-    k = CAMERA_KEYS[-1]
-    return k[1], k[2], k[3]
+    # Subtle organic handheld camera breathing micro-motion
+    t_sec = frame / float(FPS)
+    bx = math.sin(t_sec * 1.15) * 0.02
+    bz = math.cos(t_sec * 1.65) * 0.015
+
+    # Crisp 4-frame micro camera shake right as Setenil's 100-ton rock cliff locks onto roofs (f=1570..1575)!
+    if 1570 <= frame <= 1575:
+        decay = 1.0 - (frame - 1570) / 6.0
+        bx += math.sin(frame * 4.7) * 0.14 * decay
+        bz += math.cos(frame * 5.9) * 0.18 * decay
+
+    return (pos[0] + bx, pos[1], pos[2] + bz), tgt, lens
 
 
 def get_scene_id(frame: int) -> str:
@@ -235,26 +242,24 @@ def get_scene_id(frame: int) -> str:
     return "setenil_outro"
 
 
+def get_active_location(frame: int) -> str:
+    for loc_name, (f0, f1) in LOCATION_RANGES.items():
+        if f0 <= frame <= f1:
+            return loc_name
+    return "LOC_03_Setenil"
+
+
 def compute_view_angle_deg(
     char_pos: Tuple[float, float, float],
     char_facing_yaw_deg: float,
     cam_pos: Tuple[float, float, float],
 ) -> float:
-    """
-    Compute 2.5D character turntable angle (0..360 deg) relative to Blender 3D camera!
-    char_facing_yaw_deg: 0 = facing -Y (toward default camera), 90 = +X, 180 = +Y, 270 = -X.
-    """
     dx = cam_pos[0] - char_pos[0]
     dy = cam_pos[1] - char_pos[1]
     cam_yaw = math.degrees(math.atan2(dx, -dy))
-    rel = (cam_yaw - char_facing_yaw_deg) % 360.0
-    return rel
+    return (cam_yaw - char_facing_yaw_deg) % 360.0
 
 
-# ============================================================================
-# CHARACTER 3D WORLD POSITIONS, FACING, & OPEN FREE-RIG ACTING STATES
-# Strict Ground Contact: Z is ALWAYS exact floor height (0.0 or tunnel -2.4)
-# ============================================================================
 def _active_speaking(char_name: str, frame: int) -> bool:
     for c in VO_CLIPS:
         if c["char"] == char_name and c["f0"] <= frame <= c["f1"]:
@@ -262,465 +267,410 @@ def _active_speaking(char_name: str, frame: int) -> bool:
     return False
 
 
-def get_character_states(frame: int) -> Dict[str, Dict[str, Any]]:
-    """
-    Returns world transform + Free-Rig kwargs for all 6 hero characters + animated NPCs.
-    Every character's feet sit strictly at ground Z (zero floating, zero wall clipping!).
-    """
+# ============================================================================
+# DISTANCE-SYNCED CHARACTER CHOREOGRAPHY (ZERO FOOT SLIDING, FULL ACTING!)
+# ============================================================================
+def get_character_states(frame: int, lipsync_vals: Dict[str, float] | None = None) -> Dict[str, Dict[str, Any]]:
     t = frame / float(FPS)
     cam_pos, _, _ = get_camera_state(frame)
+    ls = lipsync_vals or {}
     states: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
-    # 1. FAJAR (Present across all 3 cities!)
+    # 1. FAJAR (Host & Narrator across ALL 3 locations!)
     # ------------------------------------------------------------------
-    fajar_vis = True
-    fajar_pos = (0.0, 2.2, 0.0)
-    fajar_yaw = 0.0
-    fajar_rig: Dict[str, Any] = {"animation": "free", "eyes": "honey_oval", "eyebrows": "thick_arch", "mouth": "confident_gap"}
+    f_mv = ls.get("Fajar", 0.0)
+    f_spk = _active_speaking("Fajar", frame)
 
     if frame <= 99:
-        # Whittier Exterior: shivering in blizzard, then pushing glass door at f=60..98!
         if frame < 58:
-            shiver = math.sin(t * 26.0) * 3.5
+            # Shivering visibly in Arctic snowstorm, gesturing excitedly at 14-story Begich Towers!
             fajar_pos = (0.15, 2.4, 0.0)
-            fajar_yaw = -10.0
-            fajar_rig.update({
-                "animation": "talk",
-                "pose": "crossed",
-                "eyes": "shocked" if frame < 32 else "honey_oval",
-                "eyebrows": "worried",
-                "head_tilt_deg": shiver,
-                "torso_lean_deg": 4.0 + math.sin(t * 18.0) * 1.5,
-                "pelvis_y": 5.0 + abs(math.sin(t * 14.0)) * 3.0,
-                "gesture_energy": 0.9,
-            })
+            fajar_yaw = -8.0
+            fajar_rig = build_acting_rig(
+                t, mode="shiver_cold", speaking=f_spk, mouth_val=f_mv,
+                extra={"eyes": "shocked" if frame < 32 else "honey_oval", "eyebrows": "worried"},
+            )
         else:
+            # Walking forward with true distance-locked 4-phase steps + reaching hands forward to push glass door!
             u = ease_in_out_cubic((frame - 58) / 41.0)
-            fajar_pos = (lerp(0.15, 0.35, u), lerp(2.4, 11.4, u), 0.0)
-            fajar_yaw = 180.0  # Walking forward into lobby
-            fajar_rig.update({
-                "animation": "walk",
-                "arm_pose": "point" if frame < 84 else "ready",
-                "right_hand_target": (84.0, 178.0, 42.0) if 66 <= frame <= 86 else None,
-                "torso_lean_deg": 6.0,
-            })
+            dist = u * 9.0  # 2.4m -> 11.4m = 9.0m exact distance!
+            fajar_pos = (lerp(0.15, 0.30, u), lerp(2.4, 11.4, u), 0.0)
+            fajar_yaw = 180.0
+            push_active = 64 <= frame <= 86
+            fajar_rig = build_walk_rig(
+                distance_m=dist, t=t, stride_m=0.88,
+                left_hand_override=(-32.0, 210.0, 58.0) if push_active else None,
+                right_hand_override=(44.0, 206.0, 62.0) if push_active else None,
+            )
+            fajar_rig.update({"eyes": "honey_oval", "eyebrows": "happy"})
     elif frame <= 554:
-        # Begich Towers Warm Lobby: strolling through hub -> reacting to Pak Arthur
-        if frame < 355:
-            u = ease_in_out_cubic((frame - 100) / 255.0)
-            fajar_pos = (lerp(0.35, 0.45, u), lerp(11.6, 23.8, u), 0.0)
-            fajar_yaw = lerp(165.0, -35.0, clamp01((frame - 140) / 215.0))
-            fajar_rig.update({
-                "animation": "walk" if frame < 335 else "talk",
-                "arm_pose": "point" if (180 <= frame <= 260) else "wave",
-                "eyes": "honey_oval",
-                "eyebrows": "raised" if (150 <= frame <= 250) else "happy",
-                "gesture_energy": 0.85,
-            })
+        if frame < 348:
+            u = ease_in_out_cubic((frame - 100) / 248.0)
+            dist = u * 12.2
+            fajar_pos = (lerp(0.30, 0.35, u), lerp(11.6, 23.8, u), 0.0)
+            fajar_yaw = lerp(165.0, -35.0, clamp01((frame - 150) / 198.0))
+            fajar_rig = build_walk_rig(distance_m=dist, t=t, stride_m=0.90)
+            fajar_rig.update({"eyes": "honey_oval", "eyebrows": "raised" if frame < 260 else "happy"})
         else:
-            # Watching Pak Arthur emerge in plaid pajamas!
-            fajar_pos = (0.45, 23.8, 0.0)
-            fajar_yaw = -62.0  # Looking left toward Pak Arthur at Post Office counter
-            fajar_rig.update({
-                "animation": "free",
-                "pose": "akimbo" if frame > 480 else "ready",
-                "eyes": "asymmetric" if 435 <= frame <= 515 else "happy",
-                "eyebrows": "skeptical" if 435 <= frame <= 515 else "happy",
-                "mouth": "small_o" if 435 <= frame <= 490 else "happy_open",
-                "head_tilt_deg": math.sin(t * 2.5) * 4.5,
-                "eye_gaze_x": -0.4,
-            })
+            # Standing cleanly on right-center of vertical frame reacting with comedic surprise to Pak Arthur's pajamas!
+            fajar_pos = (-0.65, 24.6, 0.0)
+            fajar_yaw = -52.0
+            fajar_rig = build_acting_rig(
+                t, mode="talk_expressive", speaking=f_spk, mouth_val=f_mv,
+                extra={
+                    "eyes": "asymmetric" if 435 <= frame <= 515 else "happy",
+                    "eyebrows": "skeptical" if 435 <= frame <= 515 else "happy",
+                    "mouth": "small_o" if 435 <= frame <= 490 else "happy_open",
+                    "eye_gaze_x": -0.45,
+                },
+            )
     elif frame <= 835:
-        # Following Maya into school tunnel!
         if frame < 610:
             u = ease_in_out_cubic((frame - 555) / 55.0)
-            fajar_pos = (lerp(0.5, 6.2, u), lerp(23.8, 24.4, u), lerp(0.0, -0.4, clamp01((frame - 585) / 25.0)))
+            dist = u * 5.8
+            fajar_pos = (lerp(0.35, 6.2, u), lerp(24.4, 24.4, u), lerp(0.0, -0.4, clamp01((frame - 585) / 25.0)))
             fajar_yaw = 90.0
-            fajar_rig.update({"animation": "walk", "eyes": "honey_oval", "gesture_energy": 0.7})
+            fajar_rig = build_walk_rig(distance_m=dist, t=t, stride_m=0.84)
+            fajar_rig.update({"eyes": "honey_oval"})
+        elif frame < 735:
+            u = ease_in_out_cubic((frame - 610) / 125.0)
+            dist = 5.8 + u * 15.8
+            z_fl = lerp(-0.4, -2.4, clamp01((frame - 610) / 38.0))
+            fajar_pos = (lerp(6.2, 22.0, u), 24.4, z_fl)
+            fajar_yaw = 84.0
+            fajar_rig = build_walk_rig(distance_m=dist, t=t, stride_m=0.86)
+            fajar_rig.update({"eyes": "honey_oval", "eyebrows": "happy"})
         else:
-            u = ease_in_out_cubic((frame - 610) / 185.0)
-            z_floor = lerp(-0.4, -2.4, clamp01((frame - 610) / 40.0))
-            fajar_pos = (lerp(6.2, 23.5, u), 24.6, z_floor)
-            fajar_yaw = 82.0 if frame < 735 else 65.0
-            fajar_rig.update({
-                "animation": "walk" if frame < 735 else "talk",
-                "arm_pose": "wave" if frame >= 740 else "point",
-                "eyes": "happy" if frame >= 740 else "honey_oval",
-                "gesture_energy": 0.8,
-            })
+            fajar_pos = (22.0, 24.4, -2.4)
+            fajar_yaw = 75.0
+            fajar_rig = build_acting_rig(t, mode="talk_expressive", speaking=f_spk, mouth_val=f_mv, extra={"eyes": "happy"})
     elif frame <= 1092:
-        # Coober Pedy Desert: fanning face in scorching 50C heat -> pushing open cave door!
         if frame < 1035:
-            fajar_pos = (99.4, 12.2, 0.0)
-            fajar_yaw = 18.0
-            fan_y = 148.0 + math.sin(t * 14.0) * 16.0
-            fan_x = 80.0 + math.cos(t * 14.0) * 10.0
-            fajar_rig.update({
-                "animation": "talk",
-                "eyes": "panic" if frame < 960 else "focused",
-                "eyebrows": "worried",
-                "sweat_drop": True,
-                "right_hand_target": (fan_x, fan_y, 34.0),
-                "head_tilt_deg": -5.0 + math.sin(t * 6.0) * 3.0,
-                "gesture_energy": 0.9,
-            })
+            # Actively fanning sweaty face in scorching 50°C Coober Pedy desert!
+            fajar_pos = (99.6, 12.2, 0.0)
+            fajar_yaw = 10.0
+            fajar_rig = build_acting_rig(
+                t, mode="fan_heat", speaking=f_spk, mouth_val=f_mv,
+                extra={"eyes": "panic" if frame < 960 else "focused", "eyebrows": "worried"},
+            )
         else:
+            # Distance-synced steps + hands reaching forward pushing open heavy wooden cave door!
             u = ease_in_out_cubic((frame - 1035) / 57.0)
-            fajar_pos = (lerp(99.4, 100.0, u), lerp(12.2, 20.6, u), 0.0)
+            dist = u * 8.4
+            fajar_pos = (lerp(99.6, 100.0, u), lerp(12.2, 20.6, u), 0.0)
             fajar_yaw = 180.0
-            fajar_rig.update({
-                "animation": "walk",
-                "right_hand_target": (84.0, 176.0, 40.0) if frame < 1072 else None,
-                "sweat_drop": frame < 1070,
-            })
+            push_c = 1044 <= frame <= 1074
+            fajar_rig = build_walk_rig(
+                distance_m=dist, t=t, stride_m=0.86,
+                left_hand_override=(-32.0, 212.0, 56.0) if push_c else None,
+                right_hand_override=(44.0, 208.0, 62.0) if push_c else None,
+            )
+            fajar_rig.update({"sweat_drop": frame < 1072, "eyes": "focused"})
     elif frame <= 1518:
-        # Coober Pedy Dugout Interior: cool relief -> awestruck by glowing Opal vein!
-        if frame < 1360:
-            u = ease_in_out_cubic((frame - 1093) / 140.0)
+        if frame < 1230:
+            u = ease_in_out_cubic((frame - 1093) / 137.0)
+            dist = u * 5.6
             fajar_pos = (lerp(100.0, 101.2, u), lerp(20.8, 26.2, u), 0.0)
-            fajar_yaw = lerp(175.0, -25.0, clamp01((frame - 1140) / 160.0))
-            fajar_rig.update({
-                "animation": "walk" if frame < 1230 else "talk",
-                "eyes": "happy",
-                "eyebrows": "happy",
-                "arm_pose": "heroic" if frame >= 1230 else "ready",
-                "gesture_energy": 0.8,
-            })
+            fajar_yaw = lerp(175.0, -25.0, clamp01((frame - 1140) / 90.0))
+            fajar_rig = build_walk_rig(distance_m=dist, t=t, stride_m=0.86)
+            fajar_rig.update({"eyes": "happy"})
         else:
-            # Turns toward Elena's glowing opal wall -> eyes wide shocked/starry!
-            fajar_pos = (101.4, 26.8, 0.0)
-            fajar_yaw = 125.0 if frame > 1425 else -45.0
-            is_opal = frame >= 1435
-            fajar_rig.update({
-                "animation": "free",
-                "eyes": "shocked" if is_opal else "happy",
-                "eyebrows": "raised",
-                "mouth": "small_o" if is_opal else "confident_gap",
-                "torso_lean_deg": 9.0 if is_opal else 2.0,
-                "pelvis_y": -6.0 if (1440 <= frame <= 1455) else 0.0,
-                "eye_gaze_x": 0.55 if is_opal else -0.35,
-            })
+            # Step clear to the left during Elena's Opal close-up so Fajar NEVER blocks Elena or the Opal Vein!
+            fajar_pos = (99.4, 26.6, 0.0) if frame >= 1415 else (101.0, 26.4, 0.0)
+            fajar_yaw = 115.0 if frame > 1420 else -42.0
+            is_opal = frame >= 1438
+            fajar_rig = build_acting_rig(
+                t, mode="talk_expressive", speaking=f_spk, mouth_val=f_mv,
+                extra={
+                    "eyes": "shocked" if is_opal else "happy",
+                    "eyebrows": "raised",
+                    "mouth": "small_o" if is_opal else "confident_gap",
+                    "eye_gaze_x": 0.55 if is_opal else -0.35,
+                },
+            )
     elif frame <= 2094:
-        # Setenil Calle Cuevas del Sol: walking comically ducked under giant hanging rock -> tasting tapas!
         if frame < 1815:
+            # TRUE 4-PHASE CROUCH WALK (knees lifting & stepping naturally while comically ducked under giant cliff!)
             u = ease_in_out_cubic((frame - 1519) / 296.0)
-            fajar_pos = (lerp(199.4, 200.4, u), lerp(5.5, 19.2, u), 0.0)
-            fajar_yaw = lerp(170.0, 45.0, clamp01((frame - 1700) / 115.0))
-            duck_bob = 22.0 + math.sin(t * 7.0) * 5.0
+            dist = u * 13.4
+            fajar_pos = (lerp(199.4, 199.5, u), lerp(5.6, 19.0, u), 0.0)
+            fajar_yaw = lerp(168.0, 48.0, clamp01((frame - 1710) / 105.0))
+            fajar_rig = build_walk_rig(
+                distance_m=dist, t=t, stride_m=0.80, crouch_px=18.0,
+                left_hand_override=(-48.0, 188.0, 32.0) if frame < 1740 else None,
+                right_hand_override=(52.0, 184.0, 34.0) if frame < 1740 else None,
+            )
             fajar_rig.update({
-                "animation": "walk",
-                "arm_pose": "panic" if frame < 1710 else "think",
-                "eyes": "panic" if frame < 1710 else "shocked",
+                "eyes": "panic" if frame < 1720 else "shocked",
                 "eyebrows": "worried",
-                "sweat_drop": frame < 1790,
-                "pelvis_y": duck_bob,
-                "torso_lean_deg": 14.0,
-                "head_tilt_deg": -10.0,
-                "eye_gaze_y": -0.85,  # Staring tensely UP at overhanging rock!
+                "sweat_drop": frame < 1795,
+                "eye_gaze_y": -0.85,  # Glancing nervously UP at overhanging rock!
             })
         else:
-            # At Mateo's terrace: tasting tapas, looking up in awe, nodding!
-            fajar_pos = (199.5, 18.8, 0.0)
-            fajar_yaw = 55.0 if frame < 2010 else 10.0
-            nod = math.sin(t * 6.5) * 7.0 if frame >= 2030 else 0.0
-            fajar_rig.update({
-                "animation": "talk" if _active_speaking("Fajar", frame) else "free",
-                "pose": "think" if frame < 2015 else "heroic",
-                "eyes": "starry" if frame >= 2035 else "happy",
-                "eyebrows": "happy",
-                "head_tilt_deg": nod,
-                "eye_gaze_y": -0.65 if (2015 <= frame <= 2060) else 0.0,
-                "gesture_energy": 0.78,
-            })
+            # At Bar La Roca terrace tasting tapas & nodding in amazement!
+            fajar_pos = (199.5, 19.0, 0.0)
+            fajar_yaw = 52.0 if frame < 2015 else 12.0
+            fajar_rig = build_acting_rig(
+                t, mode="talk_expressive", speaking=f_spk, mouth_val=f_mv,
+                extra={
+                    "eyes": "starry" if frame >= 2035 else "happy",
+                    "eyebrows": "happy",
+                    "eye_gaze_y": -0.65 if (2015 <= frame <= 2060) else 0.0,
+                },
+            )
     else:
-        # Outro (2095..2282): Center of sunlit cobblestone street -> 3 fingers -> point camera -> shrug & snap!
+        # Outro (2095..2282): Centered in Golden Hour alley -> 3 fingers -> point camera -> shrug & snap!
         fajar_pos = (200.0, 17.5, 0.0)
         fajar_yaw = 0.0
-        snap_active = frame >= 2248
-        shrug_active = 2215 <= frame < 2248
-        fajar_rig.update({
-            "animation": "talk" if _active_speaking("Fajar", frame) else "free",
-            "pose": "point" if (2165 <= frame < 2215) else ("wave" if snap_active else "heroic"),
-            "eyes": "happy" if snap_active else "honey_oval",
-            "eyebrows": "raised" if shrug_active else "happy",
-            "mouth": "happy_open" if snap_active else "confident_gap",
-            "right_hand_target": (88.0, 155.0, 38.0) if snap_active else None,
-            "pelvis_y": -8.0 if snap_active else (4.0 if shrug_active else 0.0),
-            "gesture_energy": 0.95,
-        })
+        snap_on = frame >= 2245
+        fajar_rig = build_acting_rig(
+            t,
+            mode="fajar_shrug_snap" if snap_on else "talk_expressive",
+            speaking=f_spk, mouth_val=f_mv,
+            extra={
+                "eyes": "happy" if snap_on else "honey_oval",
+                "eyebrows": "raised" if frame >= 2215 else "happy",
+                "mouth": "happy_open" if snap_on else "confident_gap",
+            },
+        )
 
     states["Fajar"] = {
-        "visible": fajar_vis,
-        "pos": fajar_pos,
-        "yaw": fajar_yaw,
-        "height_m": 1.72,
+        "visible": True, "pos": fajar_pos, "yaw": fajar_yaw, "height_m": 1.72,
         "angle": compute_view_angle_deg(fajar_pos, fajar_yaw, cam_pos),
-        "rig": {k: v for k, v in fajar_rig.items() if v is not None},
+        "rig": fajar_rig,
     }
 
     # ------------------------------------------------------------------
-    # 2. PAK ARTHUR (Whittier Begich Lobby: Elevator -> Post Office Counter)
+    # 2. PAK ARTHUR (Whittier Lobby: 4-Phase Walk out of Elevator -> Expressive Postal Acting!)
     # ------------------------------------------------------------------
     arthur_vis = 100 <= frame <= 565
-    if frame < 370:
-        arthur_pos = (-4.6, 25.0, 0.0)  # Inside elevator bay waiting for doors
+    a_mv = ls.get("Pak Arthur", 0.0)
+    a_spk = _active_speaking("Pak Arthur", frame)
+    if frame < 368:
+        arthur_pos = (-4.5, 25.0, 0.0)
         arthur_yaw = 90.0
-        arthur_rig = {"animation": "idle", "pose": "ready", "eyes": "chill"}
+        arthur_rig = build_acting_rig(t, mode="arthur_postal", speaking=False, mouth_val=0.0, extra={"eyes": "chill"})
     elif frame < 426:
-        # Strolling 5 relaxed steps from elevator to Post Office counter!
-        u = ease_in_out_cubic((frame - 370) / 56.0)
-        arthur_pos = (lerp(-4.6, -2.8, u), lerp(25.0, 26.2, u), 0.0)
-        arthur_yaw = lerp(90.0, 18.0, u)
-        arthur_rig = {
-            "animation": "walk",
-            "arm_pose": "ready",
-            "right_hand_target": (74.0, 210.0, 28.0),  # Holding steaming WHITTIER coffee mug!
-            "eyes": "chill",
-        }
+        # True 4-Phase distance-synced steps exiting elevator while carrying coffee mug & letters!
+        u = ease_in_out_cubic((frame - 368) / 58.0)
+        arthur_pos = (lerp(-4.5, -2.5, u), lerp(25.0, 26.1, u), 0.0)
+        dist = u * math.hypot(2.0, 1.1)  # 2.28m -> ~3 clean relaxed steps!
+        arthur_yaw = lerp(90.0, 22.0, u)
+        arthur_rig = build_walk_rig(
+            distance_m=dist, t=t, stride_m=0.76,
+            right_hand_override=(60.0, 224.0, 34.0),  # Carrying steaming WHITTIER mug steadily!
+        )
+        arthur_rig.update({"eyes": "chill", "eyebrows": "happy", "mouth": "smirk"})
     else:
-        # Behind/beside Post Office window casually sorting letters & delivering punchline!
-        arthur_pos = (-2.8, 26.2, 0.0)
+        arthur_pos = (-2.5, 26.1, 0.0)
         arthur_yaw = 22.0
-        arthur_rig = {
-            "animation": "talk" if _active_speaking("Pak Arthur", frame) else "idle",
-            "pose": "akimbo",
-            "eyes": "happy" if frame >= 480 else "chill",
-            "eyebrows": "happy",
-            "mouth": "smirk",
-            "gesture_energy": 0.7,
-        }
+        arthur_rig = build_acting_rig(
+            t, mode="arthur_postal", speaking=a_spk, mouth_val=a_mv,
+            extra={"eyes": "happy" if frame >= 480 else "chill", "eyebrows": "happy", "mouth": "smirk"},
+        )
     states["Pak Arthur"] = {
-        "visible": arthur_vis,
-        "pos": arthur_pos,
-        "yaw": arthur_yaw,
-        "height_m": 1.68,
+        "visible": arthur_vis, "pos": arthur_pos, "yaw": arthur_yaw, "height_m": 1.68,
         "angle": compute_view_angle_deg(arthur_pos, arthur_yaw, cam_pos),
         "rig": arthur_rig,
     }
 
     # ------------------------------------------------------------------
-    # 3. MAYA (Whittier Lobby -> Stairs -> School Tunnel)
+    # 3. MAYA (Whittier Tunnel: Energetic Jog -> Fluid Backward Steps + Multi-Joint Wave!)
     # ------------------------------------------------------------------
     maya_vis = 530 <= frame <= 835
+    m_mv = ls.get("Maya", 0.0)
+    m_spk = _active_speaking("Maya", frame)
     if frame < 605:
         u = ease_in_out_cubic(clamp01((frame - 548) / 57.0))
         maya_pos = (lerp(3.2, 11.2, u), 24.0, lerp(0.0, -1.6, clamp01((frame - 575) / 30.0)))
         maya_yaw = 90.0
-        maya_rig = {"animation": "run", "eyes": "happy", "eyebrows": "happy", "mouth": "happy_open"}
+        maya_rig = build_walk_rig(distance_m=u * 8.2, t=t, stride_m=0.92, jog=True)
+        maya_rig.update({"eyes": "happy", "eyebrows": "happy", "mouth": "happy_open"})
     elif frame < 735:
         u = ease_in_out_cubic((frame - 605) / 130.0)
-        maya_pos = (lerp(11.2, 28.2, u), 24.2, lerp(-1.6, -2.4, clamp01((frame - 605) / 25.0)))
-        maya_yaw = 90.0 if frame < 710 else lerp(90.0, -65.0, (frame - 710) / 25.0)
-        maya_rig = {"animation": "walk", "arm_pose": "wave" if frame > 700 else "ready", "eyes": "happy"}
+        maya_pos = (lerp(11.2, 28.2, u), 24.1, lerp(-1.6, -2.4, clamp01((frame - 605) / 25.0)))
+        maya_yaw = 90.0 if frame < 712 else lerp(90.0, -72.0, (frame - 712) / 23.0)
+        maya_rig = build_walk_rig(distance_m=8.2 + u * 17.0, t=t, stride_m=0.84)
+        maya_rig.update({"eyes": "happy", "eyebrows": "happy"})
     else:
-        # Turning & walking backwards joyfully waving at Fajar while speaking!
-        u = ease_in_out_cubic(clamp01((frame - 735) / 90.0))
-        maya_pos = (lerp(28.2, 34.8, u), 24.2, -2.4)
-        maya_yaw = -72.0  # Facing back toward Fajar & camera!
-        maya_rig = {
-            "animation": "talk" if _active_speaking("Maya", frame) else "wave",
-            "pose": "wave",
-            "eyes": "happy",
-            "eyebrows": "happy",
-            "mouth": "happy_open",
-            "gesture_energy": 0.95,
-        }
+        # Walking briskly BACKWARD with distance-synced reverse steps while waving joyfully with shoulder & head tilt!
+        u = ease_in_out_cubic(clamp01((frame - 735) / 92.0))
+        maya_pos = (lerp(28.2, 34.4, u), 24.1, -2.4)
+        maya_yaw = -76.0
+        w = math.sin(t * 10.5)
+        wc = math.cos(t * 10.5)
+        maya_rig = build_walk_rig(
+            distance_m=u * 6.2, t=t, stride_m=0.76, backward=True,
+            right_hand_override=(86.0 + w * 24.0, 128.0 + wc * 14.0, 36.0),
+            left_hand_override=(-36.0, 246.0, 30.0),
+        )
+        maya_rig.update({
+            "eyes": "happy", "eyebrows": "happy", "mouth": "happy_open",
+            "head_tilt_deg": -9.0 + w * 5.5,
+            "torso_lean_deg": -4.0 + w * 3.5,
+        })
     states["Maya"] = {
-        "visible": maya_vis,
-        "pos": maya_pos,
-        "yaw": maya_yaw,
-        "height_m": 1.56,
+        "visible": maya_vis, "pos": maya_pos, "yaw": maya_yaw, "height_m": 1.56,
         "angle": compute_view_angle_deg(maya_pos, maya_yaw, cam_pos),
         "rig": maya_rig,
     }
 
     # ------------------------------------------------------------------
-    # 4. JACK (Coober Pedy Dugout: Seated relaxed on leather sofa with iced tea!)
+    # 4. JACK (Coober Pedy Dugout: True Biomechanical Seated Pose on Leather Sofa!)
     # ------------------------------------------------------------------
     jack_vis = 1090 <= frame <= 1518
-    jack_pos = (98.4, 28.4, 0.22)  # Seated height aligned cleanly to leather sofa cushion!
-    jack_yaw = 32.0
-    jack_speaking = _active_speaking("Jack", frame)
-    jack_lift = 1.0 if jack_speaking else 0.0
-    jack_rig: Dict[str, Any] = {
-        "animation": "talk" if jack_speaking else "free",
-        "pose": "ready",
-        "pelvis_y": 24.0,  # Seated relaxed posture
-        "torso_lean_deg": -4.0,
-        "eyes": "happy" if jack_speaking else "chill",
-        "eyebrows": "raised" if jack_speaking else "flat",
-        "mouth": "grin_teeth" if jack_speaking else "smirk",
-        "right_hand_target": (82.0, 175.0 - jack_lift * 26.0, 34.0),  # Raising iced tea glass!
-        "gesture_energy": 0.75,
-    }
+    j_mv = ls.get("Jack", 0.0)
+    j_spk = _active_speaking("Jack", frame)
+    jack_pos = (98.4, 28.12, 0.0)  # Positioned cleanly on front edge of sofa seat so bent knees & boots sit unobstructed on floor!
+    jack_yaw = 24.0
+    lift_g = clamp01((frame - 1365) / 14.0) * (1.0 - clamp01((frame - 1428) / 12.0)) if 1365 <= frame <= 1440 else 0.0
+    jack_rig = build_seated_rig(t, speaking=j_spk, mouth_val=j_mv, lift_glass=lift_g)
+    jack_rig.update({
+        "eyes": "happy" if j_spk else "chill",
+        "eyebrows": "raised" if j_spk else "flat",
+        "mouth": "grin_teeth" if j_spk else "smirk",
+    })
     states["Jack"] = {
-        "visible": jack_vis,
-        "pos": jack_pos,
-        "yaw": jack_yaw,
-        "height_m": 1.72,
+        "visible": jack_vis, "pos": jack_pos, "yaw": jack_yaw, "height_m": 1.72,
         "angle": compute_view_angle_deg(jack_pos, jack_yaw, cam_pos),
         "rig": jack_rig,
     }
 
     # ------------------------------------------------------------------
-    # 5. ELENA (Coober Pedy Dugout: Shining LED flashlight on Opal Vein!)
+    # 5. ELENA (Coober Pedy Dugout: Active LED Flashlight Sweep + Geology Hammer Tap!)
     # ------------------------------------------------------------------
     elena_vis = 1090 <= frame <= 1518
+    e_mv = ls.get("Elena", 0.0)
+    e_spk = _active_speaking("Elena", frame)
     elena_pos = (103.0, 29.4, 0.0)
-    elena_yaw = -38.0 if frame < 1435 else -12.0
-    elena_speaking = _active_speaking("Elena", frame)
-    elena_rig: Dict[str, Any] = {
-        "animation": "talk" if elena_speaking else "free",
-        "pose": "point",
-        "eyes": "smug" if elena_speaking else "honey_oval",
-        "eyebrows": "raised",
-        "mouth": "grin_teeth" if elena_speaking else "smirk",
-        "right_hand_target": (88.0, 172.0 + math.sin(t * 2.2) * 5.0, 38.0),  # Aiming flashlight at opal wall!
-        "gesture_energy": 0.85,
-    }
+    elena_yaw = -34.0 if frame < 1435 else -14.0
+    elena_rig = build_acting_rig(
+        t, mode="elena_opal", speaking=e_spk, mouth_val=e_mv,
+        extra={
+            "eyes": "smug" if e_spk else "honey_oval",
+            "eyebrows": "raised",
+            "mouth": "grin_teeth" if e_spk else "smirk",
+        },
+    )
     states["Elena"] = {
-        "visible": elena_vis,
-        "pos": elena_pos,
-        "yaw": elena_yaw,
-        "height_m": 1.66,
+        "visible": elena_vis, "pos": elena_pos, "yaw": elena_yaw, "height_m": 1.66,
         "angle": compute_view_angle_deg(elena_pos, elena_yaw, cam_pos),
         "rig": elena_rig,
     }
 
     # ------------------------------------------------------------------
-    # 6. MATEO (Setenil Bar La Roca Terrace: Sets Tapas -> Knocks Rock -> Waves Outro!)
+    # 6. MATEO (Setenil Terrace: Serving Tapas -> Knocking Rock Ceiling -> Warm Outro Wave!)
     # ------------------------------------------------------------------
     mateo_vis = 1519 <= frame <= 2282
-    mateo_pos = (201.8, 19.2, 0.0)
-    mateo_yaw = -35.0 if frame < 2095 else -18.0
-    mateo_speaking = _active_speaking("Mateo", frame)
-    if 1835 <= frame <= 1875:
-        # Reaching UP to knock firmly on overhanging cliff ceiling (tink-tok!)
-        knock_y = 112.0 + abs(math.sin((frame - 1835) * 0.55)) * 18.0
-        mateo_rig = {
-            "animation": "talk",
-            "eyes": "happy",
-            "eyebrows": "happy",
-            "mouth": "happy_open",
-            "right_hand_target": (82.0, knock_y, 30.0),
-            "head_tilt_deg": -8.0,
-            "gesture_energy": 0.9,
-        }
+    ma_mv = ls.get("Mateo", 0.0)
+    ma_spk = _active_speaking("Mateo", frame)
+    mateo_pos = (201.6, 19.2, 0.0)
+    mateo_yaw = -32.0 if frame < 2095 else -16.0
+    if 1832 <= frame <= 1878:
+        mateo_mode = "mateo_knock"
     elif frame >= 2095:
-        # Warm farewell wave from tapas cafe terrace!
-        mateo_rig = {
-            "animation": "wave",
-            "eyes": "happy",
-            "eyebrows": "happy",
-            "mouth": "happy_open",
-        }
+        mateo_mode = "maya_wave"  # Warm cheerful farewell wave from Bar La Roca terrace!
     else:
-        mateo_rig = {
-            "animation": "talk" if mateo_speaking else "idle",
-            "pose": "wave" if frame >= 2020 else "ready",
-            "eyes": "happy",
-            "eyebrows": "happy",
-            "mouth": "happy_open",
-            "gesture_energy": 0.85,
-        }
+        mateo_mode = "mateo_serve"
+    mateo_rig = build_acting_rig(
+        t, mode=mateo_mode, speaking=ma_spk, mouth_val=ma_mv,
+        extra={"eyes": "happy", "eyebrows": "happy", "mouth": "happy_open"},
+    )
     states["Mateo"] = {
-        "visible": mateo_vis,
-        "pos": mateo_pos,
-        "yaw": mateo_yaw,
-        "height_m": 1.74,
+        "visible": mateo_vis, "pos": mateo_pos, "yaw": mateo_yaw, "height_m": 1.74,
         "angle": compute_view_angle_deg(mateo_pos, mateo_yaw, cam_pos),
         "rig": mateo_rig,
     }
 
     # ------------------------------------------------------------------
-    # LIVING ANIMATED BACKGROUND NPCs (Lobby Residents + Setenil Cafe Patrons!)
+    # LIVING ANIMATED NPCs (100% Distance-Synced 4-Phase Walk & Seated Cafe Acting!)
     # ------------------------------------------------------------------
-    # NPC 1: Begich Towers Lobby resident walking along hallway with groceries
     if 100 <= frame <= 560:
-        u1 = ((frame - 100) / 460.0)
-        p_npc1 = (1.9, lerp(28.5, 13.5, u1), 0.0)
+        u1 = (frame - 100) / 460.0
+        p_npc1 = (1.85, lerp(28.5, 13.5, u1), 0.0)
         states["NPC_Whittier_1"] = {
             "visible": True, "pos": p_npc1, "yaw": 0.0, "height_m": 1.66,
             "angle": compute_view_angle_deg(p_npc1, 0.0, cam_pos),
-            "rig": {"animation": "walk", "eyes": "chill"},
+            "rig": {**build_walk_rig(distance_m=u1 * 15.0, t=t, stride_m=0.84), "eyes": "chill"},
         }
-        p_npc2 = (-1.8, lerp(14.0, 22.0, clamp01(u1 * 1.3)), 0.0)
+        u2 = clamp01(u1 * 1.25)
+        p_npc2 = (-1.85, lerp(14.0, 22.0, u2), 0.0)
+        npc2_rig = build_walk_rig(distance_m=u2 * 8.0, t=t, stride_m=0.84) if u2 < 0.98 else build_acting_rig(t, mode="talk_expressive")
         states["NPC_Whittier_2"] = {
             "visible": True, "pos": p_npc2, "yaw": 180.0, "height_m": 1.70,
             "angle": compute_view_angle_deg(p_npc2, 180.0, cam_pos),
-            "rig": {"animation": "walk" if u1 < 0.75 else "idle", "eyes": "happy"},
+            "rig": {**npc2_rig, "eyes": "happy"},
         }
     else:
-        states["NPC_Whittier_1"] = {"visible": False, "pos": (1.9, 28.0, 0.0), "yaw": 0.0, "height_m": 1.66, "angle": 0.0, "rig": {"animation": "idle"}}
-        states["NPC_Whittier_2"] = {"visible": False, "pos": (-1.8, 14.0, 0.0), "yaw": 180.0, "height_m": 1.70, "angle": 0.0, "rig": {"animation": "idle"}}
+        for nm in ("NPC_Whittier_1", "NPC_Whittier_2"):
+            states[nm] = {"visible": False, "pos": (0.0, 20.0, 0.0), "yaw": 0.0, "height_m": 1.66, "angle": 0.0, "rig": {"animation": "free"}}
 
-    # NPC 3 & 4: Setenil Cafe Patrons chatting happily at bistro tables under the rock!
     if 1519 <= frame <= 2282:
-        p_s1 = (202.4, 13.2, 0.16)
-        p_s2 = (202.4, 14.8, 0.16)
-        p_s3 = (197.8, 22.8, 0.0)
-        u3 = ((frame - 1519) / 763.0)
-        p_s3 = (197.8, lerp(26.5, 10.5, u3), 0.0)
+        p_s1 = (201.9, 13.3, 0.0)
+        p_s2 = (201.9, 14.7, 0.0)
+        cafe_ready = frame >= 1580  # Appear ONLY once wicker café chairs have popped in & locked!
+        u3 = (frame - 1519) / 763.0
+        p_s3 = (197.4, lerp(26.5, 9.5, u3), 0.0)
         states["NPC_Setenil_1"] = {
-            "visible": True, "pos": p_s1, "yaw": 165.0, "height_m": 1.64,
+            "visible": cafe_ready, "pos": p_s1, "yaw": 165.0, "height_m": 1.64,
             "angle": compute_view_angle_deg(p_s1, 165.0, cam_pos),
-            "rig": {"animation": "talk", "pelvis_y": 22.0, "eyes": "happy", "mouth_open": abs(math.sin(t * 5.2)) * 0.45},
+            "rig": {**build_seated_rig(t, speaking=True, mouth_val=abs(math.sin(t * 4.8)) * 0.4), "eyes": "happy"},
         }
         states["NPC_Setenil_2"] = {
-            "visible": True, "pos": p_s2, "yaw": -15.0, "height_m": 1.68,
+            "visible": cafe_ready, "pos": p_s2, "yaw": -15.0, "height_m": 1.68,
             "angle": compute_view_angle_deg(p_s2, -15.0, cam_pos),
-            "rig": {"animation": "idle", "pelvis_y": 22.0, "eyes": "happy", "head_tilt_deg": math.sin(t * 2.4) * 5.0},
+            "rig": {**build_seated_rig(t + 1.4, speaking=False), "eyes": "happy"},
         }
+        # Strolling Setenil pedestrian using TRUE distance-synced 4-phase walk cycle (ZERO sliding!)
         states["NPC_Setenil_3"] = {
             "visible": True, "pos": p_s3, "yaw": 0.0, "height_m": 1.66,
             "angle": compute_view_angle_deg(p_s3, 0.0, cam_pos),
-            "rig": {"animation": "walk", "eyes": "chill"},
+            "rig": {**build_walk_rig(distance_m=u3 * 17.0, t=t, stride_m=0.84), "eyes": "chill"},
         }
     else:
         for nm in ("NPC_Setenil_1", "NPC_Setenil_2", "NPC_Setenil_3"):
-            states[nm] = {"visible": False, "pos": (200.0, 15.0, 0.0), "yaw": 0.0, "height_m": 1.66, "angle": 0.0, "rig": {"animation": "idle"}}
+            states[nm] = {"visible": False, "pos": (200.0, 15.0, 0.0), "yaw": 0.0, "height_m": 1.66, "angle": 0.0, "rig": {"animation": "free"}}
 
     return states
 
 
 # ============================================================================
-# DYNAMIC REVEAL TIMING TABLE (Strictly 1 dominant effect per hero prop/zone!)
-# Synced 0.2s ahead of VO keywords -> hard-locked after end_frame!
+# DYNAMIC BUILD-UP / ASSEMBLY REVEAL TIMING AT EVERY NEW LOCATION!
+# Fast Exponential Ease-Out with Overshoot (8-12 frames per element, 2-3f stagger, Hard Lock!)
 # ============================================================================
 DYNAMIC_REVEALS = {
-    # 1. Architectural Build-up: Begich Towers 14-story floors & windows (f=10..56)
-    "begich_tower_arch":    {"type": "architectural", "start": 4,    "dur": 46},
-    # 2. Assembly Build-up: Lobby Directory + Post Office Counter + PO Boxes (f=210..275)
-    "lobby_post_assembly":  {"type": "assembly",      "start": 205,  "dur": 36},
-    "lobby_mart_assembly":  {"type": "assembly",      "start": 255,  "dur": 34},
-    # 3. Pop-up Diorama: School Tunnel sign & glowing ceiling frames (f=565..600)
-    "tunnel_sign_popup":    {"type": "popup",         "start": 562,  "dur": 22},
-    # 4. Procedural Staggered Wave: Coober Pedy white ventilation pipes across desert (f=855..945)
-    "desert_pipes_wave":    {"type": "procedural",    "start": 850,  "stagger": 3, "dur": 20},
-    # 5. Pop-up Diorama: "DANGER: OPEN SHAFTS" rusted yellow triangle sign (f=950..974)
-    "danger_sign_popup":    {"type": "popup",         "start": 948,  "dur": 22},
-    # 6. Assembly Build-up: Dugout carved bookshelf, leather sofa & opal display (f=1120..1185)
-    "dugout_furniture_asm": {"type": "assembly",      "start": 1118, "dur": 36},
-    # 7. Architectural Build-up: Setenil whitewashed Andalusian houses under cliff (f=1565..1645)
-    "setenil_houses_arch":  {"type": "architectural", "start": 1560, "dur": 52},
-    # 8. Procedural Staggered Wave: Geranium pots & bistro tables along Calle Cuevas del Sol (f=1690..1775)
-    "setenil_cafe_wave":    {"type": "procedural",    "start": 1688, "stagger": 4, "dur": 18},
-    # 9. Pop-up Diorama: "BAR LA ROCA — TAPAS" wooden menu board (f=1790..1814)
-    "bar_sign_popup":       {"type": "popup",         "start": 1788, "dur": 22},
+    # LOC 1 — Whittier (00:00 - 00:01.8): Mountains pop -> Begich 14 floors -> Canopy, signs, cars, pines!
+    "whittier_mtns_popup":   {"start": 0,    "dur": 12, "stagger": 2},
+    "begich_tower_arch":     {"start": 6,    "dur": 10, "stagger": 2},
+    "whittier_props_snap":   {"start": 24,   "dur": 10, "stagger": 3},
+    "lobby_post_assembly":   {"start": 104,  "dur": 12, "stagger": 3},
+    "lobby_mart_assembly":   {"start": 122,  "dur": 12, "stagger": 3},
+    "tunnel_sign_popup":     {"start": 562,  "dur": 12},
+    # LOC 2 — Coober Pedy (00:27.8 - 00:30.0) & Dugout Interior (00:36.5 - 00:38.2)!
+    "coober_hill_popup":     {"start": 838,  "dur": 12, "stagger": 3},
+    "desert_pipes_wave":     {"start": 846,  "dur": 10, "stagger": 2},
+    "danger_sign_popup":     {"start": 874,  "dur": 12},
+    "dugout_furniture_asm":  {"start": 1094, "dur": 12, "stagger": 3},
+    # LOC 3 — Setenil (00:50.6 - 00:53.2): Cobblestone -> White Houses -> HEAVY CLIFF DROP + SHAKE -> Cafe!
+    "setenil_street_build":  {"start": 1520, "dur": 12},
+    "setenil_houses_arch":   {"start": 1528, "dur": 12, "stagger": 3},
+    "setenil_cliff_drop":    {"start": 1554, "dur": 16, "stagger": 2},  # Locks hard at f=1570 -> 4f camera shake!
+    "setenil_cafe_wave":     {"start": 1572, "dur": 10, "stagger": 2},
+    "bar_sign_popup":        {"start": 1574, "dur": 12},
 }
 
 
 # ============================================================================
-# PREVIEW REEL SEGMENTS (For fast multi-location GitHub review clip!)
-# Covers EVERY city, character, dynamic reveal, transition, and comedy beat!
+# COMPLETE-SENTENCE PREVIEW REEL SEGMENTS (ZERO TRUNCATED WORDS OR CUT VO!)
+# Every single segment starts cleanly before a sentence and ends cleanly after it finishes!
 # ============================================================================
 PREVIEW_SEGMENTS = [
-    ("01_whittier_hook_door",     0,   115),  # 3.8s: 2s Snowstorm Hook + Begich Architectural reveal + Fajar pushes glass door
-    ("02_arthur_pajama_post",   365,   525),  # 5.3s: Elevator opens + Pak Arthur in red-white plaid pajamas + VO punchline
-    ("03_maya_tunnel_dive",     715,   865),  # 5.0s: Maya waves in school tunnel + speed-ramp dive -> Coober Pedy vent pipe match-cut!
-    ("04_coober_desert_pipes",  890,  1040),  # 5.0s: Red desert crane pull-back + Vent pipe procedural wave + Danger sign + Fajar fanning
-    ("05_dugout_jack_elena",   1355,  1545),  # 6.3s: Dugout orbit, Jack iced tea, Elena opal flashlight -> Setenil sunbeam match-cut!
-    ("06_setenil_cliff_mateo", 1745,  1920),  # 5.8s: Fajar ducking under giant rock + Mateo knocks ceiling + Bar La Roca
-    ("07_setenil_outro_loop",  2135,  2282),  # 4.9s: Golden hour pull-back, Fajar 3 fingers -> finger snap loop!
+    ("01_whittier_hook_buildup",  0,    99),  # 3.3s: Complete 01_fajar_hook (6..92) + Begich 14-floor build-up + pushing glass door!
+    ("02_arthur_pajama_post",   422,   552),  # 4.3s: Pak Arthur at Post Office counter + complete 03_arthur_dialog (428..547)!
+    ("03_maya_tunnel_matchcut", 740,   835),  # 3.2s: Maya reverse-step wave + complete 05_maya_dialog (743..827) + speed-ramp dive!
+    ("04_coober_desert_buildup",836,  1092),  # 8.6s: Match-cut pipe burst + complete 06_fajar_coober_intro (841..1087) + desert build-up!
+    ("05_dugout_jack_elena",   1363,  1518),  # 5.2s: Complete 08_jack_dialog (1367..1433) + complete 09_elena_dialog (1439..1510) + Opal flash!
+    ("06_setenil_cliff_mateo", 1519,  1912),  # 13.1s: Match-cut sunbeam + Setenil build-up + Cliff Drop Shake + complete 10 & 11!
+    ("07_setenil_outro_loop",  2092,  2282),  # 6.3s: Complete 13_fajar_outro (2096..2271) + Golden Hour pull-back + snap seamless loop!
 ]

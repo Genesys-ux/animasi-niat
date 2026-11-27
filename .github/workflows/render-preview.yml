@@ -1,25 +1,25 @@
-name: Render 3D Animation Preview (Blender 4.2 + Python 2.5D Hybrid)
+name: Render 3D Vertical 9:16 Animation (Blender 4.2 + Python 2.5D Hybrid)
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Render mode (preview_reel = 36s 7-clip showcase across all 3 cities | full_video = full 76.1s video)"
+        description: "Render mode (full_video = full 76.1s synced video | preview_reel = 44s complete-sentence showcase)"
         required: true
-        default: "preview_reel"
+        default: "full_video"
         type: choice
         options:
-          - preview_reel
           - full_video
+          - preview_reel
       resolution:
-        description: "Output video resolution"
+        description: "Vertical 9:16 output video resolution"
         required: true
-        default: "960x540"
+        default: "540x960"
         type: choice
         options:
-          - 960x540
-          - 1280x720
-          - 1920x1080
+          - 540x960
+          - 720x1280
+          - 1080x1920
       samples:
         description: "Cycles denoised samples per frame (10 = fast preview, 16 = crisp HD, 24 = final)"
         required: true
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Compute 14 Parallel Frame Chunks
+      - name: Compute Parallel Frame Chunks (Vertical 9:16)
         id: make_chunks
         run: |
           python - <<'PY'
@@ -60,18 +60,19 @@ jobs:
           sys.path.insert(0, "production")
           from timeline_data import PREVIEW_SEGMENTS, TOTAL_FRAMES
 
-          mode = "${{ github.event.inputs.mode || 'preview_reel' }}"
-          res = "${{ github.event.inputs.resolution || '960x540' }}"
+          mode = "${{ github.event.inputs.mode || 'full_video' }}"
+          res = "${{ github.event.inputs.resolution || '540x960' }}"
           samples = "${{ github.event.inputs.samples || '10' }}"
 
           if mode == "full_video":
               all_frames = list(range(TOTAL_FRAMES))
+              n_jobs = 18
           else:
               all_frames = []
               for _, f0, f1 in PREVIEW_SEGMENTS:
                   all_frames.extend(range(f0, f1 + 1))
+              n_jobs = 14
 
-          n_jobs = 14
           chunks = []
           size = (len(all_frames) + n_jobs - 1) // n_jobs
           for idx in range(n_jobs):
@@ -137,7 +138,7 @@ jobs:
       - name: Generate Signage Textures & Build Master 3D .blend Scene
         run: |
           python production/generate_textures.py
-          /tmp/blender-4.2/blender --background --python production/build_blender_scene.py
+          /tmp/blender-4.2/blender --background --python-exit-code 1 --python production/build_blender_scene.py
 
       - name: Render 2.5D Open Free-Rig Character Sprites for Chunk
         run: |
@@ -146,6 +147,7 @@ jobs:
       - name: Render 3D Blender Hybrid Frames for Chunk
         run: |
           /tmp/blender-4.2/blender --background production/three_unique_cities.blend \
+            --python-exit-code 1 \
             --python production/render_blender_chunk.py -- \
             --frames "${{ matrix.chunk.frames }}" \
             --res "${{ needs.plan-chunks.outputs.resolution }}" \

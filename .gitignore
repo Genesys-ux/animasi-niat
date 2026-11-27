@@ -12,6 +12,8 @@ Thumbs.db
 # Generated intermediate render caches (rebuilt cleanly in CI or locally)
 production/char_sprites/
 production/verify_frames/
+production/verify_frames_v2/
+production/verify_sheet*.png
 production/rendered_frames/
 production/three_unique_cities.blend
 production/three_unique_cities.blend1

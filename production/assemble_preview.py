@@ -30,8 +30,14 @@ def build_contact_sheet(frame_paths: list[Path], out_png: Path) -> None:
     step = max(1, len(frame_paths) // 9)
     picks = frame_paths[::step][:9]
     imgs = [Image.open(p).convert("RGB") for p in picks]
-    tw, th = 426, 240
-    cols = 3
+    # Auto-detect vertical 9:16 vs horizontal 16:9 aspect ratio so tiles are never stretched
+    w0, h0 = imgs[0].size
+    if h0 > w0:
+        tw, th = 270, 480
+        cols = 3
+    else:
+        tw, th = 426, 240
+        cols = 3
     rows = (len(imgs) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * tw, rows * th), (18, 16, 24))
     for i, im in enumerate(imgs):
@@ -39,7 +45,7 @@ def build_contact_sheet(frame_paths: list[Path], out_png: Path) -> None:
         r, c = divmod(i, cols)
         sheet.paste(im_r, (c * tw, r * th))
     sheet.save(out_png, quality=92)
-    print(f"Saved contact sheet: {out_png}")
+    print(f"Saved contact sheet ({tw}x{th} tiles): {out_png}")
 
 
 def assemble_full(frames_dir: Path, out_mp4: Path) -> None:
