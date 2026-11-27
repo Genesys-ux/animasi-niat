@@ -136,14 +136,11 @@ def update_frame_state(scene: bpy.types.Scene, frame: int) -> None:
                 if tint_node:
                     tint_node.inputs["B"].default_value = tint
 
-    # 5. Sync 3D Hero Held Props (Pak Arthur mug, Hero Vent Cap match-cut clear, Elena flashlight beam!)
+    # 5. Sync 3D Hero Held Props (Spare counter mug, Hero Vent Cap match-cut clear, Elena flashlight beam!)
+    # (Note: Pak Arthur's held coffee mug is now rendered natively locked to his 2-Bone IK hand via prop='coffee_mug'!)
     mug = bpy.data.objects.get("Prop_Whittier_Mug")
-    if mug and "Pak Arthur" in char_states and char_states["Pak Arthur"]["visible"]:
-        ax, ay, az = char_states["Pak Arthur"]["pos"]
-        if frame < 426:
-            mug.location = (ax + 0.44, ay - 0.16, az + 0.88)
-        else:
-            mug.location = (-3.22, 26.25, 1.18)
+    if mug:
+        mug.location = (-3.22, 26.25, 1.18)
 
     hv_cap = bpy.data.objects.get("HeroVentPipe_Cap")
     if hv_cap:

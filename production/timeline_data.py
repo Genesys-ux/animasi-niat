@@ -459,9 +459,9 @@ def get_character_states(frame: int, lipsync_vals: Dict[str, float] | None = Non
         arthur_yaw = lerp(90.0, 22.0, u)
         arthur_rig = build_walk_rig(
             distance_m=dist, t=t, stride_m=0.76,
-            right_hand_override=(60.0, 224.0, 34.0),  # Carrying steaming WHITTIER mug steadily!
+            right_hand_override=(60.0, 224.0, 36.0),  # Carrying steaming WHITTIER mug steadily!
         )
-        arthur_rig.update({"eyes": "chill", "eyebrows": "happy", "mouth": "smirk"})
+        arthur_rig.update({"eyes": "chill", "eyebrows": "happy", "mouth": "smirk", "prop": "coffee_mug"})
     else:
         arthur_pos = (-2.5, 26.1, 0.0)
         arthur_yaw = 22.0
@@ -673,4 +673,18 @@ PREVIEW_SEGMENTS = [
     ("05_dugout_jack_elena",   1363,  1518),  # 5.2s: Complete 08_jack_dialog (1367..1433) + complete 09_elena_dialog (1439..1510) + Opal flash!
     ("06_setenil_cliff_mateo", 1519,  1912),  # 13.1s: Match-cut sunbeam + Setenil build-up + Cliff Drop Shake + complete 10 & 11!
     ("07_setenil_outro_loop",  2092,  2282),  # 6.3s: Complete 13_fajar_outro (2096..2271) + Golden Hour pull-back + snap seamless loop!
+]
+
+# Focused Fast-Turnaround QA Review Reel (~31s / 937 frames -> ~5 min on 18 GitHub Actions runners!)
+# Showcases ALL 3 evaluation targets: (1) Assembly Animations, (2) 4-Phase Character Walks, (3) Prop Interactions!
+QA_SHOWCASE_SEGMENTS = [
+    ("01_whittier_buildup_walk_door",  0,    99, "1/9 | ASSEMBLY + WALK + PUSH GLASS DOOR (Whittier)"),
+    ("02_arthur_elevator_walk_mug",  368,   548, "2/9 | 4-PHASE WALK + MUG & POST PROPS (Pak Arthur)"),
+    ("03_maya_tunnel_reverse_walk",  740,   829, "3/9 | BACKWARD WALK + WAVE (School Tunnel Maya)"),
+    ("04_coober_desert_assembly",    838,   892, "4/9 | DESERT ASSEMBLY WAVE (Coober Pedy Pipes)"),
+    ("05_fajar_fan_door_dugout_asm",1020,  1142, "5/9 | FAN HEAT + PUSH CAVE DOOR + DUGOUT ASSEMBLY"),
+    ("06_jack_seated_elena_opal",   1364,  1512, "6/9 | SEATED MUG LIFT (Jack) + PICKAXE & OPAL (Elena)"),
+    ("07_setenil_cliff_drop_asm",   1520,  1602, "7/9 | SETENIL ASSEMBLY + CLIFF DROP LOCK & SHAKE"),
+    ("08_setenil_crouch_walk_npc",  1665,  1735, "8/9 | 4-PHASE CROUCH WALK (Fajar) + STROLLING NPC"),
+    ("09_mateo_knock_rock_tapas",   1825,  1909, "9/9 | KNOCK ROCK CEILING + TAPAS SERVE (Mateo)"),
 ]

@@ -21,7 +21,7 @@ PROD_DIR = PROJECT_ROOT / "production"
 AUDIO_MIX = PROJECT_ROOT / "audio" / "master_mix.wav"
 sys.path.insert(0, str(PROD_DIR))
 
-from timeline_data import FPS, PREVIEW_SEGMENTS, TOTAL_FRAMES
+from timeline_data import FPS, PREVIEW_SEGMENTS, QA_SHOWCASE_SEGMENTS, TOTAL_FRAMES
 
 
 def build_contact_sheet(frame_paths: list[Path], out_png: Path) -> None:
@@ -80,7 +80,26 @@ def assemble_full(frames_dir: Path, out_mp4: Path) -> None:
     print(f"Assembled FULL video ({len(collected)} frames): {out_mp4}")
 
 
-def assemble_preview_reel(frames_dir: Path, out_mp4: Path) -> None:
+def _stamp_qa_badge(src_png: Path, dst_png: Path, label: str, frame_num: int) -> None:
+    """Stamp a crisp non-intrusive top-left QA chapter pill badge + frame counter onto a QA clip frame."""
+    im = Image.open(src_png).convert("RGBA")
+    w, _ = im.size
+    overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    dr = ImageDraw.Draw(overlay)
+    bar_h = max(28, int(w * 0.058))
+    dr.rectangle([0, 0, w, bar_h], fill=(12, 16, 26, 185))
+    dr.text((10, max(6, (bar_h - 12) // 2)), f"{label}  [f{frame_num:04d}]", fill=(255, 245, 210, 255))
+    out = Image.alpha_composite(im, overlay).convert("RGB")
+    out.save(dst_png)
+
+
+def assemble_segments_reel(
+    frames_dir: Path,
+    out_mp4: Path,
+    segments: list,
+    stamp_labels: bool = False,
+    tag: str = "PREVIEW REEL",
+) -> None:
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     seg_dir = frames_dir / "_preview_segs"
     seg_dir.mkdir(exist_ok=True)
@@ -88,15 +107,21 @@ def assemble_preview_reel(frames_dir: Path, out_mp4: Path) -> None:
     seg_mp4s: list[Path] = []
     all_frames: list[Path] = []
 
-    for slug, f0, f1 in PREVIEW_SEGMENTS:
+    for seg in segments:
+        slug, f0, f1 = seg[0], seg[1], seg[2]
+        label = seg[3] if len(seg) > 3 else slug
         sub_dir = seg_dir / slug
         sub_dir.mkdir(exist_ok=True)
         n = 0
         for f in range(f0, f1 + 1):
             src = frames_dir / f"frame_{f:04d}.png"
             if src.exists():
-                shutil.copy2(src, sub_dir / f"f_{n:04d}.png")
-                all_frames.append(src)
+                dst = sub_dir / f"f_{n:04d}.png"
+                if stamp_labels:
+                    _stamp_qa_badge(src, dst, label, f)
+                else:
+                    shutil.copy2(src, dst)
+                all_frames.append(dst if stamp_labels else src)
                 n += 1
         if n == 0:
             print(f"Skipping missing segment {slug} ({f0}..{f1})")
@@ -123,7 +148,7 @@ def assemble_preview_reel(frames_dir: Path, out_mp4: Path) -> None:
         seg_mp4s.append(seg_out)
 
     if not seg_mp4s:
-        raise RuntimeError(f"No preview segments could be assembled from {frames_dir}")
+        raise RuntimeError(f"No segments could be assembled from {frames_dir}")
 
     concat_txt = seg_dir / "concat.txt"
     concat_txt.write_text("\n".join(f"file '{p.resolve().as_posix()}'" for p in seg_mp4s), encoding="utf-8")
@@ -140,12 +165,12 @@ def assemble_preview_reel(frames_dir: Path, out_mp4: Path) -> None:
         check=True,
     )
     build_contact_sheet(all_frames, out_mp4.with_suffix(".contact_sheet.png"))
-    print(f"Assembled PREVIEW REEL ({len(all_frames)} frames across {len(seg_mp4s)} clips): {out_mp4}")
+    print(f"Assembled {tag} ({len(all_frames)} frames across {len(seg_mp4s)} clips): {out_mp4}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assemble Blender frames + audio into MP4")
-    parser.add_argument("--mode", choices=["preview_reel", "full_video"], default="preview_reel")
+    parser.add_argument("--mode", choices=["qa_showcase", "preview_reel", "full_video"], default="qa_showcase")
     parser.add_argument("--frames-dir", default=str(PROD_DIR / "rendered_frames"))
     parser.add_argument("--out", default=str(PROD_DIR / "output" / "preview_3_kota_unik.mp4"))
     args = parser.parse_args()
@@ -154,8 +179,10 @@ def main() -> None:
     out_mp4 = Path(args.out)
     if args.mode == "full_video":
         assemble_full(frames_dir, out_mp4)
+    elif args.mode == "qa_showcase":
+        assemble_segments_reel(frames_dir, out_mp4, QA_SHOWCASE_SEGMENTS, stamp_labels=True, tag="QA SHOWCASE")
     else:
-        assemble_preview_reel(frames_dir, out_mp4)
+        assemble_segments_reel(frames_dir, out_mp4, PREVIEW_SEGMENTS, stamp_labels=False, tag="PREVIEW REEL")
 
 
 if __name__ == "__main__":

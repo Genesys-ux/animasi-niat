@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Render mode (full_video = full 76.1s synced video | preview_reel = 44s complete-sentence showcase)"
+        description: "Render mode (qa_showcase = fast 31s assembly/walk/prop QA clip | preview_reel = 44s | full_video = 76.1s)"
         required: true
-        default: "full_video"
+        default: "qa_showcase"
         type: choice
         options:
+          - qa_showcase
           - full_video
           - preview_reel
       resolution:
@@ -58,14 +59,19 @@ jobs:
           python - <<'PY'
           import json, os, sys
           sys.path.insert(0, "production")
-          from timeline_data import PREVIEW_SEGMENTS, TOTAL_FRAMES
+          from timeline_data import PREVIEW_SEGMENTS, QA_SHOWCASE_SEGMENTS, TOTAL_FRAMES
 
-          mode = "${{ github.event.inputs.mode || 'full_video' }}"
+          mode = "${{ github.event.inputs.mode || 'qa_showcase' }}"
           res = "${{ github.event.inputs.resolution || '540x960' }}"
           samples = "${{ github.event.inputs.samples || '10' }}"
 
           if mode == "full_video":
               all_frames = list(range(TOTAL_FRAMES))
+              n_jobs = 18
+          elif mode == "qa_showcase":
+              all_frames = []
+              for seg in QA_SHOWCASE_SEGMENTS:
+                  all_frames.extend(range(seg[1], seg[2] + 1))
               n_jobs = 18
           else:
               all_frames = []
