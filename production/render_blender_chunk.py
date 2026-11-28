@@ -1,13 +1,24 @@
 """
-V2 Blender 4.2 Vertical 9:16 Headless Chunk Renderer with STRICT 3-Location Collection Isolation!
-- Forces Vertical 9:16 sensor fit (`camera.data.sensor_fit = 'VERTICAL'`)
-- Strictly isolates LOC_01_Whittier, LOC_02_CooberPedy, and LOC_03_Setenil via hide_render & hide_viewport
-  (ZERO cross-location mountain/building bleed ever possible!)
-- Dynamically switches physical Nishita / Arctic Cloud / Cozy Interior World shaders per scene!
-- Updates ground-locked 2.5D Open Free-Rig character cards + 3D held hero props per frame!
+V3 Blender 4.2 Vertical 9:16 Renderer — Supports BOTH CPU Preview & NVIDIA L4 GPU OptiX Cinema Full HD!
 
-Usage:
-  blender --background production/three_unique_cities.blend --python production/render_blender_chunk.py -- --frames 25,445,765,975,1395,1465,1855 --res 540x960 --samples 12
+Features:
+  - Full GPU Acceleration (`--device OPTIX|CUDA|AUTO|CPU`) optimized for Google Colab Pro NVIDIA L4 (Ada Lovelace)
+  - `--quality cinema` upgrades:
+      * 8-sample Ambient Occlusion across ALL materials (velvety sculptural contact shadows)
+      * Enhanced physical specular/clearcoat micro-highlights on metals, glass, snow, linoleum, marble, leather & opal
+      * High-bounce Cycles GI (8 total / 4 diffuse / 4 glossy / 6 transmission / 16 transparent)
+      * OpenImageDenoise with RGB + Albedo + Normal auxiliary passes (keeps razor-sharp rock/wood/stucco bump!)
+      * Sculptural directional Sun shadow tightening + atmospheric warm/cool fill polish
+      * Blender Compositor Cinema Pass (Fog Glow highlight bloom + subtle AgX warm-highlight / cool-shadow balance)
+  - `--skip-existing` for automatic checkpoint resume on Google Drive
+  - Strict 3-Collection Location Isolation (`LOC_01_Whittier`, `LOC_02_CooberPedy`, `LOC_03_Setenil`)
+  - Dynamic physical Nishita / Arctic Cloud / Cozy Interior World swapping
+  - Ground-locked 2.5D Open Free-Rig character cards + 3D hero props synced per frame
+
+Usage (Google Colab Pro L4 GPU Full HD Cinema):
+  blender --background production/three_unique_cities.blend --python-exit-code 1 \
+    --python production/render_blender_chunk.py -- \
+    --start 0 --end 2282 --res 1080x1920 --samples 64 --device OPTIX --quality cinema --skip-existing
 """
 
 from __future__ import annotations
@@ -15,6 +26,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from pathlib import Path
 
 import bpy
@@ -68,6 +80,159 @@ SCENE_TO_WORLD = {
     "setenil_balcony": "World_Setenil_Golden",
     "setenil_outro":   "World_Setenil_Golden",
 }
+
+# Material groups that receive richer physical clearcoat / specular highlights in Cinema GPU mode
+COAT_HIGHLIGHT_MATS = {
+    "Mat_TruckRed":       (0.75, 0.14, 0.24),  # (coat_weight, coat_roughness, base_roughness)
+    "Mat_TruckBlue":      (0.75, 0.14, 0.24),
+    "Mat_Linoleum":       (0.45, 0.18, 0.22),
+    "Mat_MarbleTop":      (0.60, 0.12, 0.16),
+    "Mat_LeatherSofa":    (0.32, 0.26, 0.30),
+    "Mat_Brass":          (0.40, 0.12, 0.18),
+    "Mat_CopperLamp":     (0.45, 0.12, 0.18),
+    "Mat_SteelBrushed":   (0.35, 0.18, 0.24),
+    "Mat_SpanishPlate":   (0.70, 0.08, 0.14),
+    "Mat_Snow":           (0.38, 0.28, 0.42),  # Subtle icy crystal snow glint under Arctic sun
+    "Mat_SetenilCobble":  (0.28, 0.24, 0.36),  # Sun-polished Andalusian cobbles
+    "Mat_Terracotta":     (0.26, 0.24, 0.38),
+    "Mat_AptWindowDark":  (0.85, 0.06, 0.10),
+    "Mat_WoodWarm":       (0.22, 0.28, 0.48),
+}
+
+
+def configure_cycles_device(scene: bpy.types.Scene, requested: str) -> str:
+    """Configure Cycles compute backend: OPTIX (NVIDIA L4 RT cores!) -> CUDA -> CPU fallback."""
+    req = requested.upper()
+    if req == "CPU":
+        scene.cycles.device = "CPU"
+        return "CPU"
+
+    prefs = bpy.context.preferences.addons["cycles"].preferences
+    order = ["OPTIX", "CUDA"] if req in ("AUTO", "OPTIX") else [req, "OPTIX", "CUDA"]
+
+    for backend in order:
+        try:
+            prefs.compute_device_type = backend
+            prefs.get_devices()
+            gpu_names = []
+            for dev in prefs.devices:
+                if dev.type == backend:
+                    dev.use = True
+                    gpu_names.append(dev.name)
+                else:
+                    # Disable CPU during GPU render so CPU tiles never stall an L4 GPU!
+                    dev.use = False
+            if gpu_names:
+                scene.cycles.device = "GPU"
+                print(f"[Cycles GPU] Enabled {backend} on: {', '.join(gpu_names)}", flush=True)
+                return backend
+        except Exception as exc:
+            print(f"[Cycles GPU] Backend {backend} unavailable ({exc}), trying fallback...", flush=True)
+
+    scene.cycles.device = "CPU"
+    print("[Cycles GPU] No GPU device found -> falling back to CPU.", flush=True)
+    return "CPU"
+
+
+def apply_cinema_quality_upgrade(scene: bpy.types.Scene) -> None:
+    """
+    Upgrade lighting, shadows, micro-texture sharpness, specular highlights, and Compositor bloom
+    for Google Colab Pro NVIDIA L4 Full HD 9:16 production renders!
+    """
+    print("[Cinema Upgrade] Enhancing AO shadows, specular/coat highlights, bump contrast & Compositor bloom...", flush=True)
+
+    # 1. Upgrade ALL materials: 8-sample velvety AO, sharper texture bump, richer specular/clearcoat & rim highlights
+    for mat in bpy.data.materials:
+        if not mat.use_nodes or not mat.node_tree:
+            continue
+        if mat.name.startswith("Mat_Actor_") or mat.name.startswith("Mat_sign_"):
+            continue
+        nodes = mat.node_tree.nodes
+
+        for nd in nodes:
+            if nd.type == "AMBIENT_OCCLUSION":
+                nd.samples = 8  # Ultra-smooth contact occlusion shadows!
+                nd.inputs["Distance"].default_value = max(1.6, nd.inputs["Distance"].default_value)
+            elif nd.type == "BUMP":
+                # Subtle micro-relief contrast boost so rock strata, stucco, wood grain & cobbles pop at 1080x1920!
+                nd.inputs["Strength"].default_value = min(0.85, nd.inputs["Strength"].default_value * 1.22)
+            elif nd.type == "BSDF_PRINCIPLED":
+                if mat.name in COAT_HIGHLIGHT_MATS:
+                    cw, cr, br = COAT_HIGHLIGHT_MATS[mat.name]
+                    nd.inputs["Roughness"].default_value = br
+                    if "Coat Weight" in nd.inputs:
+                        nd.inputs["Coat Weight"].default_value = cw
+                    if "Coat Roughness" in nd.inputs:
+                        nd.inputs["Coat Roughness"].default_value = cr
+                    if "Specular IOR Level" in nd.inputs:
+                        nd.inputs["Specular IOR Level"].default_value = 0.65
+            elif nd.type == "MIX_SHADER":
+                # Lean slightly more toward Principled BSDF (0.60 vs 0.45) for richer physical shadows & specular highlights
+                # while keeping the signature semi-realistic cel-shaded aesthetic!
+                if abs(nd.inputs["Fac"].default_value - 0.45) < 0.02 and not nd.inputs["Fac"].is_linked:
+                    nd.inputs["Fac"].default_value = 0.60
+            elif nd.type == "EMISSION":
+                # Give subtle rim & light emissives crisp cinema punch!
+                if mat.name in ("Mat_NeonGlow", "Mat_AmberGlow", "Mat_AptWindowLit"):
+                    nd.inputs["Strength"].default_value = max(nd.inputs["Strength"].default_value, 1.35)
+
+    # 2. Enhance Directional Sun Shadows & Warm/Cool Sculptural Lighting Contrast
+    light_tweaks = {
+        "Whittier_ArcticSun":  {"energy": 3.4, "angle_deg": 2.4},  # Crisper glacier shadows on snow!
+        "Coober_OutbackSun":   {"energy": 5.6, "angle_deg": 1.1},  # Razor-sharp scorching desert shadows!
+        "Setenil_GoldenSun":   {"energy": 5.4, "angle_deg": 1.4},  # Dramatic Spanish Golden Hour shafts!
+        "Light_Elena_Flashlight": {"energy": 420.0},
+    }
+    for lname, cfg in light_tweaks.items():
+        obj = bpy.data.objects.get(lname)
+        if obj and obj.type == "LIGHT":
+            if "energy" in cfg:
+                obj.data.energy = cfg["energy"]
+            if "angle_deg" in cfg and obj.data.type == "SUN":
+                obj.data.angle = math.radians(cfg["angle_deg"])
+
+    # Slightly deepen shadows & lift highlights with AgX High Contrast / Punchy + subtle filmic exposure
+    scene.view_settings.view_transform = "AgX"
+    for look_cand in ("AgX - Medium High Contrast", "AgX - Punchy", "None"):
+        try:
+            scene.view_settings.look = look_cand
+            break
+        except Exception:
+            continue
+    scene.view_settings.exposure = 0.16
+
+    # 3. Blender Compositor Cinema Finishing Pass (Fog Glow Bloom + Subtle Filmic Color Balance!)
+    scene.use_nodes = True
+    ct = scene.node_tree
+    cn, cl = ct.nodes, ct.links
+    cn.clear()
+
+    rl = cn.new("CompositorNodeRLayers")
+    rl.location = (-400, 0)
+
+    # Subtle Fog Glow highlight bloom (makes windows, neons, opal crystal, copper lamps & Golden Hour glints sing!)
+    glare = cn.new("CompositorNodeGlare")
+    glare.location = (-100, 0)
+    glare.glare_type = "FOG_GLOW"
+    glare.quality = "HIGH"
+    glare.threshold = 1.15
+    glare.size = 7
+    glare.mix = -0.35  # Refined cinema bloom (never washed out!)
+
+    # Subtle 3-way Filmic Color Grading (cool clean shadows, rich midtones, warm luminous highlights!)
+    cb = cn.new("CompositorNodeColorBalance")
+    cb.location = (180, 0)
+    cb.correction_method = "LIFT_GAMMA_GAIN"
+    cb.lift = (0.985, 0.992, 1.012)   # Crisp cool shadow depth
+    cb.gamma = (1.005, 1.000, 0.995)  # Natural balanced midtones
+    cb.gain = (1.030, 1.012, 0.985)   # Warm luminous highlights
+
+    comp = cn.new("CompositorNodeComposite")
+    comp.location = (460, 0)
+
+    cl.new(rl.outputs["Image"], glare.inputs["Image"])
+    cl.new(glare.outputs["Image"], cb.inputs["Image"])
+    cl.new(cb.outputs["Image"], comp.inputs["Image"])
 
 
 def update_frame_state(scene: bpy.types.Scene, frame: int) -> None:
@@ -137,7 +302,6 @@ def update_frame_state(scene: bpy.types.Scene, frame: int) -> None:
                     tint_node.inputs["B"].default_value = tint
 
     # 5. Sync 3D Hero Held Props (Spare counter mug, Hero Vent Cap match-cut clear, Elena flashlight beam!)
-    # (Note: Pak Arthur's held coffee mug is now rendered natively locked to his 2-Bone IK hand via prop='coffee_mug'!)
     mug = bpy.data.objects.get("Prop_Whittier_Mug")
     if mug:
         mug.location = (-3.22, 26.25, 1.18)
@@ -156,14 +320,14 @@ def update_frame_state(scene: bpy.types.Scene, frame: int) -> None:
         flash_spot.hide_render = not en
         if en:
             boost = 1.0 + max(0.0, (frame - 1425) / 60.0) * 3.4
-            flash_spot.data.energy = 260.0 * boost
+            flash_spot.data.energy = 280.0 * boost
 
     bpy.context.view_layer.update()
 
 
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    parser = argparse.ArgumentParser(description="Render Vertical 9:16 Blender 4.2 frames")
+    parser = argparse.ArgumentParser(description="Render Vertical 9:16 Blender 4.2 frames (CPU or NVIDIA L4 OptiX GPU)")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=0)
     parser.add_argument("--frames", type=str, default="")
@@ -171,6 +335,9 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=14)
     parser.add_argument("--out-dir", type=str, default=str(OUT_FRAMES_DEFAULT))
     parser.add_argument("--engine", type=str, default="CYCLES")
+    parser.add_argument("--device", type=str, default="CPU", choices=["CPU", "OPTIX", "CUDA", "AUTO"])
+    parser.add_argument("--quality", type=str, default="draft", choices=["draft", "cinema"])
+    parser.add_argument("--skip-existing", action="store_true", help="Resume cleanly by skipping already-rendered PNGs")
     args = parser.parse_args(argv)
 
     w_str, h_str = args.res.lower().split("x")
@@ -184,35 +351,90 @@ def main() -> None:
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
+    scene.render.image_settings.compression = 15
 
+    active_backend = "CPU"
     if args.engine == "CYCLES":
-        scene.cycles.device = "CPU"
+        active_backend = configure_cycles_device(scene, args.device)
         scene.cycles.samples = args.samples
         scene.cycles.use_adaptive_sampling = True
-        scene.cycles.adaptive_threshold = 0.05
         scene.cycles.use_denoising = True
-        scene.cycles.max_bounces = 3
-        scene.cycles.diffuse_bounces = 2
-        scene.cycles.glossy_bounces = 1
-        scene.cycles.transparent_max_bounces = 12
+
+        if args.quality == "cinema":
+            scene.cycles.adaptive_threshold = 0.015
+            scene.cycles.max_bounces = 8
+            scene.cycles.diffuse_bounces = 4
+            scene.cycles.glossy_bounces = 4
+            scene.cycles.transmission_bounces = 6
+            scene.cycles.volume_bounces = 2
+            scene.cycles.transparent_max_bounces = 16
+            scene.cycles.sample_clamp_direct = 10.0
+            scene.cycles.sample_clamp_indirect = 5.0
+            # Keep crisp rock/stucco/wood bump textures during denoising using Albedo + Normal auxiliary passes!
+            try:
+                scene.cycles.denoiser = "OPENIMAGEDENOISE"
+                scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+                if active_backend in ("OPTIX", "CUDA"):
+                    scene.cycles.denoising_use_gpu = True
+            except Exception:
+                pass
+            apply_cinema_quality_upgrade(scene)
+        else:
+            scene.cycles.adaptive_threshold = 0.05
+            scene.cycles.max_bounces = 3
+            scene.cycles.diffuse_bounces = 2
+            scene.cycles.glossy_bounces = 1
+            scene.cycles.transparent_max_bounces = 12
+
+        # Keep persistent data off by default so animated 2.5D character sprite swaps & build-up transforms NEVER go stale
+        scene.render.use_persistent_data = False
 
     if args.frames.strip():
         frame_list = [int(x.strip()) for x in args.frames.split(",") if x.strip()]
     else:
         frame_list = list(range(args.start, args.end + 1))
 
-    print(f"Rendering {len(frame_list)} VERTICAL 9:16 frames @ {w_str}x{h_str} ({args.engine}, samples={args.samples}) -> {out_dir}")
+    total = len(frame_list)
+    t_start = time.time()
+    rendered_now = 0
+    skipped = 0
+
+    print(
+        f"Rendering {total} VERTICAL 9:16 frames @ {w_str}x{h_str} "
+        f"({args.engine}/{active_backend}, quality={args.quality}, samples={args.samples}) -> {out_dir}",
+        flush=True,
+    )
+
     for idx, f in enumerate(frame_list, 1):
-        update_frame_state(scene, f)
         out_file = out_dir / f"frame_{f:04d}.png"
+        if args.skip_existing and out_file.exists() and out_file.stat().st_size > 10_000:
+            skipped += 1
+            if skipped % 100 == 0:
+                print(f"  [Resume] Skipped {skipped} already-rendered frames (at f{f:04d})...", flush=True)
+            continue
+
+        update_frame_state(scene, f)
         scene.render.filepath = str(out_file)
         bpy.ops.render.render(write_still=True)
-        if idx % 12 == 0:
+        rendered_now += 1
+
+        if rendered_now % 16 == 0:
             for img in list(bpy.data.images):
                 if img.name.startswith("spr_") and img.users == 0:
                     bpy.data.images.remove(img)
-        if idx % 10 == 0 or idx == len(frame_list):
-            print(f"  [Blender 9:16] {idx}/{len(frame_list)} (frame {f:04d})", flush=True)
+
+        if rendered_now % 10 == 0 or idx == total:
+            elapsed = time.time() - t_start
+            avg_s = elapsed / max(1, rendered_now)
+            rem_f = total - idx
+            eta_min = (rem_f * avg_s) / 60.0
+            print(
+                f"  [Blender {active_backend}] {idx}/{total} (f{f:04d}) | "
+                f"{avg_s:.2f}s/frame | ETA ~{eta_min:.1f} min",
+                flush=True,
+            )
+
+    print(f"DONE! Rendered {rendered_now} new frames (skipped {skipped}) in {(time.time() - t_start)/60.0:.1f} min.", flush=True)
 
 
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ def build_lipsync_tables() -> Dict[str, Dict[int, float]]:
     return tables
 
 
-def render_frames(frames: List[int], scale: float = 2.0, workers: int = 4) -> None:
+def render_frames(frames: List[int], scale: float = 2.0, workers: int = 4, skip_existing: bool = False) -> None:
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     for slug in ACTOR_SLUGS.values():
         (OUT_ROOT / slug).mkdir(parents=True, exist_ok=True)
@@ -140,6 +140,7 @@ def render_frames(frames: List[int], scale: float = 2.0, workers: int = 4) -> No
     lipsync = build_lipsync_tables()
 
     tasks = []
+    skipped = 0
     for f in frames:
         ls_frame = {nm: tbl[f] for nm, tbl in lipsync.items() if f in tbl}
         st_map = get_character_states(f, lipsync_vals=ls_frame)
@@ -148,13 +149,16 @@ def render_frames(frames: List[int], scale: float = 2.0, workers: int = 4) -> No
                 continue
             slug = ACTOR_SLUGS[name]
             out_png = OUT_ROOT / slug / f"frame_{f:04d}.png"
+            if skip_existing and out_png.exists() and out_png.stat().st_size > 2000:
+                skipped += 1
+                continue
             rig = dict(st["rig"])
             if name in ls_frame:
                 rig["mouth_open"] = ls_frame[name]
             rig["ground_shadow"] = False
             tasks.append((name, f, float(st["angle"]), rig, out_png))
 
-    print(f"Rendering {len(tasks)} character sprites across {len(frames)} frames (scale={scale}, workers={workers})...")
+    print(f"Rendering {len(tasks)} character sprites (skipped {skipped}) across {len(frames)} frames (scale={scale}, workers={workers})...")
 
     def _run_one(item):
         name, f, angle, rig, out_png = item
@@ -180,8 +184,9 @@ def main() -> None:
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=0)
     parser.add_argument("--frames", type=str, default="", help="Comma-separated exact frame list (overrides --start/--end)")
-    parser.add_argument("--scale", type=float, default=2.0, help="2.0 = 480x1040 crisp HD sprites")
+    parser.add_argument("--scale", type=float, default=2.0, help="2.0 = 480x1040 draft, 3.0 = 720x1560 Full HD cinema")
     parser.add_argument("--workers", type=int, default=min(6, os.cpu_count() or 4))
+    parser.add_argument("--skip-existing", action="store_true", help="Skip already-rendered sprite PNGs for fast resume")
     args = parser.parse_args()
 
     if args.frames.strip():
@@ -189,7 +194,7 @@ def main() -> None:
     else:
         frame_list = list(range(args.start, args.end + 1))
 
-    render_frames(frame_list, scale=args.scale, workers=args.workers)
+    render_frames(frame_list, scale=args.scale, workers=args.workers, skip_existing=args.skip_existing)
 
 
 if __name__ == "__main__":

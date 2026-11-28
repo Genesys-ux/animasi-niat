@@ -39,6 +39,10 @@ on:
       - "characters/**"
       - ".github/workflows/render-preview.yml"
 
+concurrency:
+  group: render-preview-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   plan-chunks:
     name: Plan Parallel Render Chunks

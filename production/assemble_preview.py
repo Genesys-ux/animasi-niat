@@ -48,36 +48,43 @@ def build_contact_sheet(frame_paths: list[Path], out_png: Path) -> None:
     print(f"Saved contact sheet ({tw}x{th} tiles): {out_png}")
 
 
-def assemble_full(frames_dir: Path, out_mp4: Path) -> None:
+def assemble_full(frames_dir: Path, out_mp4: Path, crf: int = 16, audio_bitrate: str = "256k") -> None:
+    import tempfile
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
-    # Build sequential symlink/copy folder so ffmpeg image2 is 100% contiguous
-    seq_dir = frames_dir / "_seq_full"
-    seq_dir.mkdir(exist_ok=True)
-    collected: list[Path] = []
-    idx = 0
-    for f in range(TOTAL_FRAMES):
-        src = frames_dir / f"frame_{f:04d}.png"
-        if src.exists():
-            dst = seq_dir / f"seq_{idx:05d}.png"
-            shutil.copy2(src, dst)
-            collected.append(src)
-            idx += 1
-    if not collected:
-        raise RuntimeError(f"No rendered frames found in {frames_dir}")
+    # Build sequential symlink folder on local fast SSD temp dir (works even when frames_dir is on Google Drive FUSE!)
+    seq_dir = Path(tempfile.mkdtemp(prefix="seq_full_3kota_"))
+    try:
+        collected: list[Path] = []
+        idx = 0
+        for f in range(TOTAL_FRAMES):
+            src = frames_dir / f"frame_{f:04d}.png"
+            if src.exists():
+                dst = seq_dir / f"seq_{idx:05d}.png"
+                try:
+                    dst.symlink_to(src.resolve())
+                except Exception:
+                    shutil.copy2(src, dst)
+                collected.append(src)
+                idx += 1
+        if not collected:
+            raise RuntimeError(f"No rendered frames found in {frames_dir}")
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-framerate", str(FPS),
-        "-i", str(seq_dir / "seq_%05d.png"),
-        "-i", str(AUDIO_MIX),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "19", "-preset", "medium",
-        "-c:a", "aac", "-b:a", "192k", "-shortest",
-        "-movflags", "+faststart",
-        str(out_mp4),
-    ]
-    subprocess.run(cmd, check=True)
-    build_contact_sheet(collected, out_mp4.with_suffix(".contact_sheet.png"))
-    print(f"Assembled FULL video ({len(collected)} frames): {out_mp4}")
+        cmd = [
+            "ffmpeg", "-y",
+            "-framerate", str(FPS),
+            "-i", str(seq_dir / "seq_%05d.png"),
+            "-i", str(AUDIO_MIX),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", str(crf), "-preset", "slow",
+            "-profile:v", "high", "-level", "4.2",
+            "-c:a", "aac", "-b:a", audio_bitrate, "-shortest",
+            "-movflags", "+faststart",
+            str(out_mp4),
+        ]
+        subprocess.run(cmd, check=True)
+        build_contact_sheet(collected, out_mp4.with_suffix(".contact_sheet.png"))
+        print(f"Assembled FULL CINEMA video ({len(collected)} frames, CRF {crf}): {out_mp4}")
+    finally:
+        shutil.rmtree(seq_dir, ignore_errors=True)
 
 
 def _stamp_qa_badge(src_png: Path, dst_png: Path, label: str, frame_num: int) -> None:
@@ -173,12 +180,13 @@ def main() -> None:
     parser.add_argument("--mode", choices=["qa_showcase", "preview_reel", "full_video"], default="qa_showcase")
     parser.add_argument("--frames-dir", default=str(PROD_DIR / "rendered_frames"))
     parser.add_argument("--out", default=str(PROD_DIR / "output" / "preview_3_kota_unik.mp4"))
+    parser.add_argument("--crf", type=int, default=16, help="H.264 CRF quality (14-16 = cinema Full HD, 19 = draft)")
     args = parser.parse_args()
 
     frames_dir = Path(args.frames_dir)
     out_mp4 = Path(args.out)
     if args.mode == "full_video":
-        assemble_full(frames_dir, out_mp4)
+        assemble_full(frames_dir, out_mp4, crf=args.crf)
     elif args.mode == "qa_showcase":
         assemble_segments_reel(frames_dir, out_mp4, QA_SHOWCASE_SEGMENTS, stamp_labels=True, tag="QA SHOWCASE")
     else:
