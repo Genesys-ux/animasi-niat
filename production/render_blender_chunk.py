@@ -378,15 +378,12 @@ def main() -> None:
             scene.cycles.transparent_max_bounces = 12
             scene.cycles.sample_clamp_direct = 10.0
             scene.cycles.sample_clamp_indirect = 5.0
-            # Use NVIDIA L4 Tensor-Core OPTIX Denoiser (~0.04s vs ~5s CPU OIDN!) with Albedo+Normal for crisp bump!
+            # Use OpenImageDenoise (bundled natively in Blender 4.2 + GPU accelerated on L4; Colab lacks liboptix_denoiser!)
             try:
-                if active_backend == "OPTIX":
-                    scene.cycles.denoiser = "OPTIX"
-                    scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-                    print("[Cycles GPU] Enabled OPTIX Tensor-Core Denoiser (RGB_ALBEDO_NORMAL)", flush=True)
-                else:
-                    scene.cycles.denoiser = "OPENIMAGEDENOISE"
-                    scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+                scene.cycles.denoiser = "OPENIMAGEDENOISE"
+                scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+                if active_backend in ("OPTIX", "CUDA"):
+                    scene.cycles.denoising_use_gpu = True
             except Exception:
                 pass
             apply_cinema_quality_upgrade(scene)
